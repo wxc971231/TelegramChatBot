@@ -1,19 +1,34 @@
 import openai
-import os
+from aiogram import Bot, Dispatcher, executor, types
 from MagicBook import DEFAULT_HYPNOTISM
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from dotenv import load_dotenv 
+from Data import initUser, getUserPrompts, updateUserPrompts
+
+USER_STATUS_INIT = 0
+USER_STATUS_SETTINGKEY = 1
+USER_STATUS_SETTINGCONTEXT = 2
+USER_STATUS_NEWHYP = 3
+USER_STATUS_ALLGOOD = 4
 
 class User():
-    def __init__(self, key) -> None:
-        self.hypnotism = DEFAULT_HYPNOTISM.copy()
+    def __init__(self, id, cursor, connection, key=None) -> None:
+        self.id = id
+        self.key = key   
+        self.cursor = cursor
+        self.connection = connection
+        self.status = USER_STATUS_INIT
+
+        self.hypnotism = initUser(cursor, connection, id)
         self.character = 'GPT3.5'
         self.system = self.hypnotism[self.character]
         self.contextMaxLen = 5
         self.history = {'user':[], 'assistant':[]}
+        
+    def setOpenAIKey(self, key):
         self.key = key
-    
+
     def clearHistory(self):
         self.history = {'user':[], 'assistant':[]}
 
@@ -49,12 +64,22 @@ class User():
         )
 
         reply = completion.choices[0].message.content
+        tokenCnt = completion._previous['usage']['total_tokens']
+        #print(tokenCnt)
         self.history['assistant'].insert(0, reply)
         return reply
 
-    def getHypnotismKeyBorad(self):
+    def getHypnotismKeyBorad(self, usage):
         inlineKeyboard = InlineKeyboardMarkup()
-        for sys in self.hypnotism.keys():
-            inlineButton = InlineKeyboardButton(text=sys, callback_data=sys)      # 这里的callback_data是点击是调用的函数名
+        if usage == 'delete_hyp':
+            inlineButton = InlineKeyboardButton(text='【取消修改】', callback_data=usage+'【取消修改】')      # 这里的callback_data是点击是调用的函数名
             inlineKeyboard.add(inlineButton)
+
+        self.hypnotism = getUserPrompts(self.cursor, self.id)
+        for character in self.hypnotism.keys():
+            inlineButton = InlineKeyboardButton(text=character, callback_data=usage+character)      # 这里的callback_data是点击是调用的函数名
+            inlineKeyboard.add(inlineButton)
+        
         return inlineKeyboard
+
+    
