@@ -9,7 +9,6 @@ import pymysql
 
 load_dotenv(find_dotenv('.env'), override=True)
 BOT_TOKEN = os.environ['BOT_TOKEN']
-KEY = os.environ['MY_OPENAI_KEY']
 
 connection = pymysql.connect(host='localhost', user='root', password='wxc971231')
 cursor = connection.cursor()

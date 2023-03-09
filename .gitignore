@@ -131,3 +131,4 @@ dmypy.json
 # custom
 .env
 _test.py
+note.txt
