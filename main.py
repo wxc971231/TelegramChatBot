@@ -13,7 +13,7 @@ import time
 import threading
 load_dotenv(find_dotenv('.env'), override=True)
 
-ISDEBUGING = False
+ISDEBUGING = True
 ISDEPLOYING = False
 
 # 连接数据库
@@ -27,10 +27,10 @@ dp = Dispatcher(bot)    # 调度器
 users = {}              # 用户信息管理
 
 # -----------------------------------------------------------------------------
-async def isDebuging(message):
-    if ISDEBUGING:
+async def isDebugingNdeploying(message):
+    if ISDEPLOYING and ISDEBUGING:
         await message.reply('抱歉，正在维护中，请稍后访问...')
-    return ISDEBUGING
+    return ISDEPLOYING and ISDEBUGING
 
 async def initUser(message):
     # 建立 User 对象
@@ -69,7 +69,7 @@ async def welcome(message: types.Message):
 @dp.message_handler(commands=['setapikey', ])
 async def welcome(message: types.Message):
     if message.chat.type == 'private':
-        if await isDebuging(message): return
+        if await isDebugingNdeploying(message): return
         userId = message.chat.id 
         if userId not in users:
             print(f'新用户【{message.chat.first_name}】发起连接')
@@ -84,7 +84,7 @@ async def welcome(message: types.Message):
 @dp.message_handler(commands=['setcontextlen', ])
 async def welcome(message: types.Message):
     if message.chat.type == 'private':
-        if await isDebuging(message): return
+        if await isDebugingNdeploying(message): return
         await initUser(message)
         user = users[message.chat.id]
         if user.status == USER_STATUS_ALLGOOD:
@@ -95,7 +95,7 @@ async def welcome(message: types.Message):
 @dp.message_handler(commands=['sethypnotism', ])
 async def set_hypnotism(message: types.Message):
     if message.chat.type == 'private':
-        if await isDebuging(message): return
+        if await isDebugingNdeploying(message): return
         await initUser(message)
         user = users[message.chat.id]
         if user.status == USER_STATUS_ALLGOOD:
@@ -106,7 +106,7 @@ async def set_hypnotism(message: types.Message):
 @dp.message_handler(commands=['deletehypnotism', ])
 async def commands(message: types.Message):
     if message.chat.type == 'private':
-        if await isDebuging(message): return
+        if await isDebugingNdeploying(message): return
         await initUser(message)
         user = users[message.chat.id]
         if user.status == USER_STATUS_ALLGOOD:
@@ -117,7 +117,7 @@ async def commands(message: types.Message):
 @dp.message_handler(commands=['newhypnotism', ])
 async def set_hypnotism(message: types.Message):
     if message.chat.type == 'private':
-        if await isDebuging(message): return
+        if await isDebugingNdeploying(message): return
         await initUser(message)
         user = users[message.chat.id]
         if user.status == USER_STATUS_ALLGOOD:
@@ -128,7 +128,7 @@ async def set_hypnotism(message: types.Message):
 @dp.message_handler(commands=['showhypnotism', ])
 async def show_hypnotism(message: types.Message):
     if message.chat.type == 'private':
-        if await isDebuging(message): return
+        if await isDebugingNdeploying(message): return
         await initUser(message)
         user = users[message.chat.id]
         if user.status == USER_STATUS_ALLGOOD:
@@ -139,7 +139,7 @@ async def show_hypnotism(message: types.Message):
 @dp.message_handler()
 async def chat(message: types.Message):
     if message.chat.type == 'private':   
-        if await isDebuging(message): return
+        if await isDebugingNdeploying(message): return
         # 配合完成 User 配置 
         if message.chat.id in users:
             user = users[message.chat.id]
