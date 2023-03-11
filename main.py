@@ -1,23 +1,37 @@
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.types import BotCommand
+import aiogram
 import asyncio
 from User import User, USER_STATUS_INIT, USER_STATUS_ALLGOOD, USER_STATUS_SETTINGKEY, USER_STATUS_SETTINGCONTEXT, USER_STATUS_NEWHYP
 from Data import getDatabaseReady, getUserKey, updateUserKey, updateUserPrompts
 from dotenv import load_dotenv, find_dotenv
 import os
 import pymysql
-
+from MagicBook import ABOUT
+import multiprocessing
+import time
+import threading
 load_dotenv(find_dotenv('.env'), override=True)
-BOT_TOKEN = os.environ['BOT_TOKEN']
 
-connection = pymysql.connect(host='localhost', user='root', password='wxc971231')
+ISDEBUGING = False
+ISDEPLOYING = False
+
+# 连接数据库
+connection = pymysql.connect(host='localhost', user='root') if ISDEPLOYING else pymysql.connect(host='localhost', user='root', password='wxc971231')
 cursor = connection.cursor()
 
-bot = Bot(token=BOT_TOKEN, proxy='http://127.0.0.1:7890')       # 通过代理连接
-dp = Dispatcher(bot)                                            # 调度器 
-users = {}
+# bot dispatcher and user object
+BOT_TOKEN = os.environ['TEST_BOT_TOKEN'] if ISDEBUGING else os.environ['BOT_TOKEN']
+bot = Bot(token=BOT_TOKEN) if ISDEPLOYING else Bot(token=BOT_TOKEN, proxy='http://127.0.0.1:7890') 
+dp = Dispatcher(bot)    # 调度器 
+users = {}              # 用户信息管理
 
 # -----------------------------------------------------------------------------
+async def isDebuging(message):
+    if ISDEBUGING:
+        await message.reply('抱歉，正在维护中，请稍后访问...')
+    return ISDEBUGING
+
 async def initUser(message):
     # 建立 User 对象
     userId = message.chat.id 
@@ -45,15 +59,17 @@ async def initUser(message):
         await message.reply('请输入Openai API Key：')
         
 # -----------------------------------------------------------------------------
-@dp.message_handler(commands=['start', 'help'])
+@dp.message_handler(commands=['start', 'about', 'help'])
 async def welcome(message: types.Message):
     if message.chat.type == 'private':
+        await message.answer(ABOUT, parse_mode='MarkdownV2', disable_web_page_preview=True)
         await initUser(message)
 
 # 设置OpenAI API Key
 @dp.message_handler(commands=['setapikey', ])
 async def welcome(message: types.Message):
     if message.chat.type == 'private':
+        if await isDebuging(message): return
         userId = message.chat.id 
         if userId not in users:
             print(f'新用户【{message.chat.first_name}】发起连接')
@@ -68,6 +84,7 @@ async def welcome(message: types.Message):
 @dp.message_handler(commands=['setcontextlen', ])
 async def welcome(message: types.Message):
     if message.chat.type == 'private':
+        if await isDebuging(message): return
         await initUser(message)
         user = users[message.chat.id]
         if user.status == USER_STATUS_ALLGOOD:
@@ -78,6 +95,7 @@ async def welcome(message: types.Message):
 @dp.message_handler(commands=['sethypnotism', ])
 async def set_hypnotism(message: types.Message):
     if message.chat.type == 'private':
+        if await isDebuging(message): return
         await initUser(message)
         user = users[message.chat.id]
         if user.status == USER_STATUS_ALLGOOD:
@@ -88,6 +106,7 @@ async def set_hypnotism(message: types.Message):
 @dp.message_handler(commands=['deletehypnotism', ])
 async def commands(message: types.Message):
     if message.chat.type == 'private':
+        if await isDebuging(message): return
         await initUser(message)
         user = users[message.chat.id]
         if user.status == USER_STATUS_ALLGOOD:
@@ -98,6 +117,7 @@ async def commands(message: types.Message):
 @dp.message_handler(commands=['newhypnotism', ])
 async def set_hypnotism(message: types.Message):
     if message.chat.type == 'private':
+        if await isDebuging(message): return
         await initUser(message)
         user = users[message.chat.id]
         if user.status == USER_STATUS_ALLGOOD:
@@ -108,6 +128,7 @@ async def set_hypnotism(message: types.Message):
 @dp.message_handler(commands=['showhypnotism', ])
 async def show_hypnotism(message: types.Message):
     if message.chat.type == 'private':
+        if await isDebuging(message): return
         await initUser(message)
         user = users[message.chat.id]
         if user.status == USER_STATUS_ALLGOOD:
@@ -118,6 +139,7 @@ async def show_hypnotism(message: types.Message):
 @dp.message_handler()
 async def chat(message: types.Message):
     if message.chat.type == 'private':   
+        if await isDebuging(message): return
         # 配合完成 User 配置 
         if message.chat.id in users:
             user = users[message.chat.id]
@@ -183,7 +205,13 @@ async def chat(message: types.Message):
             except Exception as e:
                 reply = '出错了...\n\n'+str(e)        
                 print(f'[get reply error]: user{message.chat.first_name}', e)
-            await message.answer(reply)
+            try:
+                await message.answer(reply)
+            except aiogram.utils.exceptions.MessageIsTooLong:
+                while len(reply) > 4000:
+                    await message.answer(reply[:4000])
+                    reply = reply[4000:]
+                await message.answer(reply)
         else:
             pass
 
@@ -216,13 +244,37 @@ async def start():
                             BotCommand('newhypnotism','创建新咒语'),
                             BotCommand('deletehypnotism','删除咒语'),
                             BotCommand('setcontextlen','设置上下文长度'),
-                            BotCommand('setapikey','设置OpenAI Key'),])
+                            BotCommand('setapikey','设置OpenAI Key'),
+                            BotCommand('about','使用指南')])
 
-if __name__ == '__main__':
-    getDatabaseReady(cursor=cursor)
+def botActivate():
+    print('bot启动中; pid = {}'.format(os.getpid()))
 
+    getDatabaseReady(cursor)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(start())
     loop.run_until_complete(executor.start_polling(dp))
-               
+
+def connectionGuard(process):
+    '''
+    主进程守护线程在此检查bot进程是否死亡，并自动重启
+    '''
+    while True:
+        if not process.is_alive():
+            process = multiprocessing.Process(target=botActivate) 
+            process.start()
+        time.sleep(3)
+
+if __name__ == '__main__':
+    # 在子进程中启动 bot
+    p = multiprocessing.Process(target=botActivate)
+    p.start()
+    time.sleep(3)
+
+    # 启动守护子线程，检查并重启断连的进程
+    guardThread = threading.Thread(target=connectionGuard, args=(p,))
+    guardThread.start()   
+
+    # 主线程/主进程死循环，禁止程序退出
+    while True: time.sleep(0.1)

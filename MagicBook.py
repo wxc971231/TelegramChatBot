@@ -26,3 +26,20 @@ DEFAULT_HYPNOTISM['GPT3.5'] = '不使用催眠咒语，直接和 GPT3.5 对话'
 DEFAULT_HYPNOTISM['Neko'] = Noke_hyp
 DEFAULT_HYPNOTISM['茨木华扇'] = Huashan_hyp
 DEFAULT_HYPNOTISM['坤坤'] = Kunkun_hyp
+
+ABOUT = '''*这是一个基于 GPT3\.5 API 开发的聊天机器人*，您可以将其催眠成指定角色与您畅聊，基本不会遗忘设定。免费使用且完全开源！
+    1\. [使用指南](https://www\.bilibili\.com/video/BV1pM4y1C7Vk)
+    2\. [开源仓库](https://github\.com/wxc971231/TelegramChatBot)，求star 求star 求star！
+
+*以下是您可能遇到的问题*
+    1\. 显示 `This model's maximum context length is 4097 tokens\.\.\.`，这代表您向 openai 服务器发送的信息超过了其允许的最大长度，由于发送的信息组成为“__咒语\+一定量历史对话__”，您应避免使用过长的咒语，或在对话中发送太长的句子。如果已经出现此问题，您可以多发送几个短句子来清理过长的历史对话，也可以在菜单中重新设定上下文长度（这会清空历史对话）
+    
+    2\. 显示 `Rate limit reached for default\-gpt\-3\.5\-turbo\.\.\.`，这代表您向 openai 服务器发送信息的速率太快了，可以稍等一会再发送，也可以升级您的 openai 账户
+    
+    3\. 显示 `Incorrect API key provided\.\.\.`，这代表您使用的 openai API key 错误，请在指定网站生成您的 API key
+
+*如果您遇到任何其他bug或有建议*，可随时联系我 @GetupEarlyTomo 反馈
+
+*如果您没有 openai API key 但仍想体验本机器人*，也可以联系我借用我的 API key 体验一下，感谢您的支持！
+'''
+

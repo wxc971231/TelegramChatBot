@@ -19,8 +19,8 @@ def getDatabaseReady(cursor):
     # 若不存在，则创建 user_info 数据表
     create_table = f'''CREATE TABLE IF NOT EXISTS {tableName} (
                         id INT NOT NULL AUTO_INCREMENT,
-                        user_id VARCHAR(255) NOT NULL,
-                        user_key VARCHAR(255) NOT NULL,
+                        user_id VARCHAR(190) NOT NULL,
+                        user_key VARCHAR(190) NOT NULL,
                         prompts JSON,
                         PRIMARY KEY (id),
                         UNIQUE KEY (user_id)
