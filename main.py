@@ -141,7 +141,6 @@ async def show_hypnotism(message: types.Message):
         await initUser(message)
         user = users[message.chat.id]
         if user.status == USER_STATUS_ALLGOOD:
-            user.status = USER_STATUS_NEWHYP
             await message.reply(f'当前GPT被催眠为【{user.character}】，使用的咒语如下\n'+'-'*35+'\n\n'+user.system)
 
 # 继续
