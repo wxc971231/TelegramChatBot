@@ -67,3 +67,9 @@ def updateUserPrompts(cursor, connection, userId, prompts):
     values = (json.dumps(prompts), userId)
     cursor.execute(update_user_prompts, values)
     connection.commit()
+
+def deleteUser(cursor, connection, userId):
+    update_user_prompts = f"DELETE FROM user_info where user_id=%s"
+    values = (userId, )
+    cursor.execute(update_user_prompts, values)
+    connection.commit()

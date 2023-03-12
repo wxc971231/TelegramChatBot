@@ -3,7 +3,7 @@ from aiogram.types import BotCommand
 import aiogram
 import asyncio
 from User import User, USER_STATUS_INIT, USER_STATUS_ALLGOOD, USER_STATUS_SETTINGKEY, USER_STATUS_SETTINGCONTEXT, USER_STATUS_NEWHYP
-from Data import getDatabaseReady, getUserKey, updateUserKey, updateUserPrompts
+from Data import getDatabaseReady, getUserKey, updateUserKey, updateUserPrompts, deleteUser
 from dotenv import load_dotenv, find_dotenv
 import os
 import pymysql
@@ -59,6 +59,15 @@ async def initUser(message):
         await message.reply('请输入Openai API Key：')
         
 # -----------------------------------------------------------------------------
+@dp.message_handler(commands=['resetall',])
+async def resetAll(message: types.Message):
+    if message.chat.type == 'private':
+        if message.chat.id in users:
+            users.pop(message.chat.id)
+            deleteUser(cursor, connection, message.chat.id)
+        await message.reply('机器人已重置')
+        #await initUser(message)
+
 @dp.message_handler(commands=['start', 'about', 'help'])
 async def welcome(message: types.Message):
     if message.chat.type == 'private':
@@ -245,7 +254,8 @@ async def start():
                             BotCommand('deletehypnotism','删除咒语'),
                             BotCommand('setcontextlen','设置上下文长度'),
                             BotCommand('setapikey','设置OpenAI Key'),
-                            BotCommand('about','使用指南')])
+                            BotCommand('about','使用指南'),
+                            BotCommand('resetall','遇到严重错误时点此重置机器人')])
 
 def botActivate():
     print('bot启动中; pid = {}'.format(os.getpid()))
