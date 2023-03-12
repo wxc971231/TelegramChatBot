@@ -156,15 +156,15 @@ async def chat(message: types.Message):
                 return
             elif user.status == USER_STATUS_SETTINGCONTEXT: # 设置上下文长度
                 try:
-                    len = int(message.text)
+                    contextLen = int(message.text)
                 except Exception as e:
                     await message.reply(f'出错了...没有进行修改\n\n'+str(e))
                     user.status = USER_STATUS_ALLGOOD
-                if len <= 0:
+                if contextLen <= 0:
                     await message.reply(f'非法长度，没有进行修改')
                     user.status = USER_STATUS_ALLGOOD
                 else:
-                    user.contextMaxLen = len
+                    user.contextMaxLen = contextLen
                     user.clearHistory()
                     await message.reply(f'当前记忆上下文长度为【{user.contextMaxLen}】回合对话')
                     user.status = USER_STATUS_ALLGOOD
