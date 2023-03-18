@@ -50,7 +50,7 @@ async def initUser(message):
         return
 
     # 尝试从数据库获取 API Key
-    key = getUserKey(cursor, userId)
+    key = getUserKey(cursor, connection, userId)
     if key is not None:
         user.key = key
         user.status = USER_STATUS_ALLGOOD
@@ -83,7 +83,7 @@ async def welcome(message: types.Message):
         if userId not in users:
             print(f'新用户【{message.chat.first_name}】发起连接')
             users[userId] = User(id=userId, cursor=cursor, connection=connection)
-            users[userId].key = getUserKey(cursor, userId)   
+            users[userId].key = getUserKey(cursor, connection, userId)   
         users[userId].status = USER_STATUS_SETTINGKEY
 
         text = f'当前OpenAI API Key设置为:\n\n{users[userId].key}\n\n请回复新API Key进行修改（回复“取消”放弃修改）：' if users[userId].key is not None else '当前未设置OpenAI API Key，请回复API Key进行设定：'
@@ -275,7 +275,7 @@ async def start():
 def botActivate():
     print('bot启动中; pid = {}'.format(os.getpid()))
 
-    getDatabaseReady(cursor)
+    getDatabaseReady(cursor, connection)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(start())

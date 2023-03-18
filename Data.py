@@ -2,7 +2,8 @@ import json
 from MagicBook import DEFAULT_HYPNOTISM
 from pymysql.converters import escape_string
 
-def getDatabaseReady(cursor):
+def getDatabaseReady(cursor, connection):
+    connection.ping(reconnect=True) # 检查连接是否存在，断开的话重连
     databaseName = 'chatbot'
     tableName = 'user_info'
 
@@ -28,6 +29,7 @@ def getDatabaseReady(cursor):
     cursor.execute(create_table)
 
 def initUser(cursor, connection, userId):
+    connection.ping(reconnect=True) # 检查连接是否存在，断开的话重连
     select_user_info = f"SELECT * FROM user_info WHERE user_id={userId}"
     cursor.execute(select_user_info)
     user = cursor.fetchone()
@@ -43,7 +45,8 @@ def initUser(cursor, connection, userId):
     
     return hypnotism
 
-def getUserKey(cursor, userId):
+def getUserKey(cursor, connection, userId):
+    connection.ping(reconnect=True) # 检查连接是否存在，断开的话重连
     select_user_info = f"SELECT user_key FROM user_info WHERE user_id={userId}"
     cursor.execute(select_user_info)
     row = cursor.fetchone()
@@ -51,11 +54,13 @@ def getUserKey(cursor, userId):
     return key
 
 def updateUserKey(cursor, connection, userId, userKey):
+    connection.ping(reconnect=True) # 检查连接是否存在，断开的话重连
     update_user_key = f"UPDATE user_info SET user_key='{userKey}' WHERE user_id={userId}"
     cursor.execute(update_user_key)
     connection.commit()
 
-def getUserPrompts(cursor, userId):
+def getUserPrompts(cursor, connection, userId):
+    connection.ping(reconnect=True) # 检查连接是否存在，断开的话重连
     select_prompts = f"SELECT prompts FROM user_info WHERE user_id={userId}"
     cursor.execute(select_prompts)
     result = cursor.fetchone()
@@ -63,12 +68,14 @@ def getUserPrompts(cursor, userId):
     return prompts
 
 def updateUserPrompts(cursor, connection, userId, prompts):
+    connection.ping(reconnect=True) # 检查连接是否存在，断开的话重连
     update_user_prompts = f"UPDATE user_info SET prompts=%s WHERE user_id=%s"
     values = (json.dumps(prompts), userId)
     cursor.execute(update_user_prompts, values)
     connection.commit()
 
 def deleteUser(cursor, connection, userId):
+    connection.ping(reconnect=True) # 检查连接是否存在，断开的话重连
     update_user_prompts = f"DELETE FROM user_info where user_id=%s"
     values = (userId, )
     cursor.execute(update_user_prompts, values)

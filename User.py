@@ -75,7 +75,7 @@ class User():
             inlineButton = InlineKeyboardButton(text='【取消修改】', callback_data=usage+'【取消修改】')      # 这里的callback_data是点击是调用的函数名
             inlineKeyboard.add(inlineButton)
 
-        self.hypnotism = getUserPrompts(self.cursor, self.id)
+        self.hypnotism = getUserPrompts(self.cursor, self.connection, self.id)
         for character in self.hypnotism.keys():
             inlineButton = InlineKeyboardButton(text=character, callback_data=usage+character)      # 这里的callback_data是点击是调用的函数名
             inlineKeyboard.add(inlineButton)
