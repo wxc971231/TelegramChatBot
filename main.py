@@ -197,7 +197,7 @@ async def chat(message: types.Message):
                 user.hypnotism[character] = hyp
                 updateUserPrompts(cursor, connection, user.id, user.hypnotism)
                 user.clearHistory()
-                await message.reply(f'新咒语【{character}】添加成功')
+                await message.reply(f'新咒语【{character}】添加成功，想要使用这条咒语的话，需要先在《魔导绪论》中点选催眠哦')
                 user.status = USER_STATUS_ALLGOOD
                 return
 
@@ -210,16 +210,28 @@ async def chat(message: types.Message):
             try:
                 print(f'{message.chat.first_name}发起了API请求')
                 reply = await asyncio.to_thread(users[message.chat.id].getReply, message.text)
+            except UnicodeEncodeError as e:
+                reply = f'出错了...\n\n{str(e)}\n\n这很可能是因为您输入了带中文的API Key，如果您没有API Key，请在 "左下角菜单->使用指南" 中找公共Key重新绑定'        
+                print(f'[get reply error]: user{message.chat.first_name}', e)
             except Exception as e:
                 reply = '出错了...\n\n'+str(e)        
                 print(f'[get reply error]: user{message.chat.first_name}', e)
             try:
-                await message.answer(reply)
+                try:
+                    await message.answer(reply, parse_mode='Markdown')
+                except Exception:
+                    await message.answer(reply)
             except aiogram.utils.exceptions.MessageIsTooLong:
                 while len(reply) > 4000:
-                    await message.answer(reply[:4000])
+                    try:
+                        await message.answer(reply[:4000], parse_mode='Markdown')
+                    except Exception:
+                        await message.answer(reply[:4000])
                     reply = reply[4000:]
-                await message.answer(reply)
+                try:
+                    await message.answer(reply, parse_mode='Markdown')
+                except Exception:
+                    await message.answer(reply)
         else:
             pass
 

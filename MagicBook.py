@@ -38,6 +38,8 @@ ABOUT = '''*这是一个基于 GPT3\.5 API 开发的聊天机器人*，您可以
     
     3\. 显示 `Incorrect API key provided\.\.\.`，这代表您使用的 openai API key 错误，请在指定网站生成您的 API key
 
+    4\. 显示 `ERROR 'latin\-1' codec can't encode...`，这代表您可能填入了包含中文的 API Key，请在[openai官网](https://platform\.openai\.com/account/api\-keys)获取
+
 *如果您遇到任何其他bug或有建议*，可随时联系我 @GetupEarlyTomo 反馈
 
 *如果您没有 openai API key 但仍想体验本机器人*，也可以联系我借用我的 API key 体验一下，感谢您的支持！
