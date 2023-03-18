@@ -186,6 +186,10 @@ async def chat(message: types.Message):
                 try:
                     character = text[text.find('【')+1: text.find('】')]
                     hyp = text[text.find('【',1)+1: text.rfind('】')]
+                    if len(character) > 10:
+                        await message.reply(f'出错了...没有进行修改\n\n角色名“{character}”太长了，请注意是否误把咒语文本写到角色名位置，要按照指定格式编写')
+                        user.status = USER_STATUS_ALLGOOD
+                        return 
                 except Exception as e:
                     await message.reply(f'出错了...没有进行修改\n\n'+str(e))
                     user.status = USER_STATUS_ALLGOOD

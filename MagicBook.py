@@ -28,7 +28,7 @@ DEFAULT_HYPNOTISM['茨木华扇'] = Huashan_hyp
 DEFAULT_HYPNOTISM['坤坤'] = Kunkun_hyp
 
 ABOUT = '''*这是一个基于 GPT3\.5 API 开发的聊天机器人*，您可以将其催眠成指定角色与您畅聊，基本不会遗忘设定。免费使用且完全开源！
-    1\. [使用指南](https://www\.bilibili\.com/video/BV1pM4y1C7Vk)
+    1\. [使用指南](https://www\.bilibili\.com/video/BV1pM4y1C7Vk)，*请务必先看这个了解正确的催眠方法，不要像网页版那样直接在对话中催眠*
     2\. [开源仓库](https://github\.com/wxc971231/TelegramChatBot)，求star 求star 求star！
 
 *以下是您可能遇到的问题*
