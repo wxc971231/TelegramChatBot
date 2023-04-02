@@ -41,7 +41,7 @@ def initUser(cursor, connection, userId):
         values = (userId, '', '', json.dumps(DEFAULT_HYPNOTISM))
         cursor.execute(insert_user_info, values)
         connection.commit()
-        hypnotism = DEFAULT_HYPNOTISM
+        hypnotism = DEFAULT_HYPNOTISM.copy()
     else:
         hypnotism = json.loads(user[4])
     
