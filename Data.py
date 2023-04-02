@@ -4,6 +4,7 @@ from pymysql.converters import escape_string
 
 def getDatabaseReady(cursor, connection):
     connection.ping(reconnect=True) # 检查连接是否存在，断开的话重连
+
     databaseName = 'chatbot'
     tableName = 'user_info'
 
@@ -22,7 +23,8 @@ def getDatabaseReady(cursor, connection):
                         id INT NOT NULL AUTO_INCREMENT,
                         user_id VARCHAR(190) NOT NULL,
                         user_key VARCHAR(190) NOT NULL,
-                        prompts JSON,
+                        user_img_key VARCHAR(190) NOT NULL,
+                        prompts TEXT,
                         PRIMARY KEY (id),
                         UNIQUE KEY (user_id)
                     )'''
@@ -35,13 +37,13 @@ def initUser(cursor, connection, userId):
     user = cursor.fetchone()
     
     if user is None:
-        insert_user_info = f"INSERT INTO user_info (user_id, user_key, prompts) VALUES (%s, %s, %s)"
-        values = (userId, '', json.dumps(DEFAULT_HYPNOTISM))
+        insert_user_info = f"INSERT INTO user_info (user_id, user_key, user_img_key, prompts) VALUES (%s, %s, %s, %s)"
+        values = (userId, '', '', json.dumps(DEFAULT_HYPNOTISM))
         cursor.execute(insert_user_info, values)
         connection.commit()
-        hypnotism = DEFAULT_HYPNOTISM.copy()
+        hypnotism = DEFAULT_HYPNOTISM
     else:
-        hypnotism = json.loads(user[3])
+        hypnotism = json.loads(user[4])
     
     return hypnotism
 
@@ -53,10 +55,24 @@ def getUserKey(cursor, connection, userId):
     key = None if row[0] == '' else row[0]
     return key
 
+def getUserImgKey(cursor, connection, userId):
+    connection.ping(reconnect=True) # 检查连接是否存在，断开的话重连
+    select_user_info = f"SELECT user_img_key FROM user_info WHERE user_id={userId}"
+    cursor.execute(select_user_info)
+    row = cursor.fetchone()
+    key = None if row[0] == '' else row[0]
+    return key
+
 def updateUserKey(cursor, connection, userId, userKey):
     connection.ping(reconnect=True) # 检查连接是否存在，断开的话重连
     update_user_key = f"UPDATE user_info SET user_key='{userKey}' WHERE user_id={userId}"
     cursor.execute(update_user_key)
+    connection.commit()
+
+def updateUserImgKey(cursor, connection, userId, userImgKey):
+    connection.ping(reconnect=True) # 检查连接是否存在，断开的话重连
+    update_img_key = f"UPDATE user_info SET user_img_key='{userImgKey}' WHERE user_id={userId}"
+    cursor.execute(update_img_key)
     connection.commit()
 
 def getUserPrompts(cursor, connection, userId):
@@ -76,7 +92,14 @@ def updateUserPrompts(cursor, connection, userId, prompts):
 
 def deleteUser(cursor, connection, userId):
     connection.ping(reconnect=True) # 检查连接是否存在，断开的话重连
-    update_user_prompts = f"DELETE FROM user_info where user_id=%s"
+    delete_user = f"DELETE FROM user_info where user_id=%s"
     values = (userId, )
-    cursor.execute(update_user_prompts, values)
+    cursor.execute(delete_user, values)
+    connection.commit()
+
+def clearAllPrompts(cursor, connection, prompts):
+    connection.ping(reconnect=True) # 检查连接是否存在，断开的话重连
+    clear_all_prompts = f"UPDATE user_info SET prompts=%s"
+    values = (prompts, )
+    cursor.execute(clear_all_prompts, values)
     connection.commit()

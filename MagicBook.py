@@ -27,9 +27,9 @@ DEFAULT_HYPNOTISM['Neko'] = Noke_hyp
 DEFAULT_HYPNOTISM['茨木华扇'] = Huashan_hyp
 DEFAULT_HYPNOTISM['坤坤'] = Kunkun_hyp
 
-ABOUT = '''*这是一个基于 GPT3\.5 API 开发的聊天机器人*，您可以将其催眠成指定角色与您畅聊，基本不会遗忘设定。免费使用且完全开源！
+ABOUT = '''*这是一个基于 GPT3\.5 API 开发的聊天机器人*，您可以将其催眠成指定角色与您畅聊，基本不会遗忘设定。免费使用且完全开源！（2023\.4\.1 更新stable diffusion图像生成功能）
     1\. [使用指南](https://www\.bilibili\.com/video/BV1pM4y1C7Vk)，*请务必先看这个了解正确的催眠方法，不要像网页版那样直接在对话中催眠*
-    2\. [开源仓库](https://github\.com/wxc971231/TelegramChatBot)，求star 求star 求star！
+    2\. [开源仓库](https://github\.com/wxc971231/TelegramChatBot)，*求star 求star 求star！*
 
 *以下是您可能遇到的问题*
     1\. 显示 `This model's maximum context length is 4097 tokens\.\.\.`，这代表您向 openai 服务器发送的信息超过了其允许的最大长度，由于发送的信息组成为“__咒语\+一定量历史对话__”，您应避免使用过长的咒语，或在对话中发送太长的句子。如果已经出现此问题，您可以多发送几个短句子来清理过长的历史对话，也可以在菜单中重新设定上下文长度（这会清空历史对话）
@@ -38,12 +38,18 @@ ABOUT = '''*这是一个基于 GPT3\.5 API 开发的聊天机器人*，您可以
     
     3\. 显示 `Incorrect API key provided\.\.\.`，这代表您使用的 openai API key 错误，请在指定网站生成您的 API key
 
-    4\. 显示 `ERROR 'latin\-1' codec can't encode...`，这代表您可能填入了包含中文的 API Key，请在[openai官网](https://platform\.openai\.com/account/api\-keys)获取
+    4\. 显示 `ERROR 'latin\-1' codec can't encode...`，这代表您可能填入了包含中文的 API Key，如果您没有 API Key 或不想将存储您的 API Key，可以使用下面的公用 Key
 
-*如果您遇到任何其他bug或有建议*，可随时联系我 @GetupEarlyTomo 反馈
+*如果您遇到任何其他bug或有建议*，可随时联系我 @GetupEarlyTomo 反馈，另外*建议加入交流群 @nekolalala* 学习催眠技巧&了解项目动态&分享您的见解
 
-*如果您没有 openai API key 但仍想体验本机器人*，也可以联系我借用我的 API key 体验一下，感谢您的支持！
+*如果您没有 openai API key 但仍想体验本机器人*，也可以暂时使用公用密钥 ```sk\-bJWSrupJ4VPxiYnw4s0UT3BlbkFJh8BQxx4yWSMFfjPnAz5I```，但这容易使您遇到上面的 Rate limit 等问题。*（公共API Key额度已经耗尽！）*
 
 ||程序有*极小*概率发生崩溃，虽然会自动重启以维持服务，但这会导致模型丧失上下文记忆，另外模型维护也会导致失忆（咒语都不会丢失），如果您遇到这些问题，非常抱歉！！||
 '''
 
+#IMGPROMPT = "Here is a MidJourney Prompt Formula: (image we're prompting). (5 descriptive keywords). (camera type). (camera lens type). (time of day).(style of photograph). (type of film)"
+IMGPROMPT = "Here is a prompt example for 一个童话般的宁静小镇，鸟瞰视角，动漫风格 is “a painting of a fairy tale town, serene landscape, a bird's eye view, anime style, Highly detailed, Vivid Colors.” "
+IMGPROMPT += "Here is another prompt example for 双马尾动漫少女，蓝黑色头发，颜色鲜艳 is “a painting of 1girl, blue | black hair, low twintails, anime style, with bright colors, Highly detailed.” "
+IMGPROMPT += "Here is another prompt example for 拟人化的兔子肖像，油画，史诗电影风格 is “a oil portrait of the bunny, Octane rendering, anthropomorphic creature, reddit moderator, epic, cinematic, elegant, highly detailed, featured on artstation.” "
+IMGPROMPT += "Here is another prompt example for 黄昏下，大雨中，两个持刀的海盗在海盗船上决斗 is “Two knife-wielding pirates dueling on a pirate ship, dusk, heavy rain, unreal engine, 8k, high-definition, by Alphonse Mucha and Wayne Barlowe.” "
+IMGPROMPT += "Now write a prompts for "

@@ -2,27 +2,34 @@ from aiogram import Bot, Dispatcher, executor, types
 from aiogram.types import BotCommand
 import aiogram
 import asyncio
-from User import User, USER_STATUS_INIT, USER_STATUS_ALLGOOD, USER_STATUS_SETTINGKEY, USER_STATUS_SETTINGCONTEXT, USER_STATUS_NEWHYP
-from Data import getDatabaseReady, getUserKey, updateUserKey, updateUserPrompts, deleteUser
+from User import User
+from Data import getDatabaseReady, getUserKey, getUserImgKey, updateUserKey, updateUserPrompts, deleteUser, updateUserImgKey
 from dotenv import load_dotenv, find_dotenv
 import os
+import datetime
 import pymysql
-from MagicBook import ABOUT
+from MagicBook import ABOUT, IMGPROMPT
+from Utils import gen_img
 import multiprocessing
 import time
 import threading
+import grpc
+import stability_sdk.interfaces.gooseai.generation.generation_pb2 as generation
+import io
+from PIL import Image
+
 load_dotenv(find_dotenv('.env'), override=True)
 
-ISDEBUGING = True
-ISDEPLOYING = False
+ISDEBUGING = False
+ISDEPLOYING = True
 
 # 连接数据库
-connection = pymysql.connect(host='localhost', user='root') if ISDEPLOYING else pymysql.connect(host='localhost', user='root', password='wxc971231')
+connection = pymysql.connect(host='localhost', user='root', database='chatbot', password='wxc971231')
 cursor = connection.cursor()
 
 # bot dispatcher and user object
-BOT_TOKEN = os.environ['TEST_BOT_TOKEN'] if ISDEBUGING else os.environ['BOT_TOKEN']
-bot = Bot(token=BOT_TOKEN) if ISDEPLOYING else Bot(token=BOT_TOKEN, proxy='http://127.0.0.1:7890') 
+BOT_TOKEN = os.environ['TEST_BOT_TOKEN']
+bot = Bot(token=BOT_TOKEN, proxy='http://127.0.0.1:7890') if ISDEPLOYING else Bot(token=BOT_TOKEN, proxy='http://127.0.0.1:7890') 
 dp = Dispatcher(bot)    # 调度器 
 users = {}              # 用户信息管理
 
@@ -37,31 +44,43 @@ async def initUser(message):
     userId = message.chat.id 
     if userId not in users:
         print(f'新用户【{message.chat.first_name}】发起连接')
-        users[userId] = User(id=userId, cursor=cursor, connection=connection)
+        users[userId] = User(name=message.chat.first_name, id=userId, cursor=cursor, connection=connection)
+        await message.answer(f'*本机器人正在对图像生成功能进行debug测试，稳定的聊天服务请使用 @jokerController\_bot*。有任何问题，请加入讨论群 @nekolalala 反馈', parse_mode='MarkdownV2')
     user = users[userId]
 
+    if ISDEBUGING and ISDEPLOYING: 
+        users.pop(userId)
+
     # 已处于工作状态，直接返回
-    if user.status == USER_STATUS_ALLGOOD:
+    if user.state == 'allGood':
         return
 
     # 正在设置 API Key，显示提示词返回
-    if user.status == USER_STATUS_SETTINGKEY:
+    if user.state == 'settingChatKey':
         await message.reply('请输入Openai API Key：')
         return
+
+    # 尝试从数据库获取 Stable diffusion API Key
+    imgKey = getUserImgKey(cursor, connection, userId)
+    if imgKey is not None:
+        user.imgKey = imgKey
 
     # 尝试从数据库获取 API Key
     key = getUserKey(cursor, connection, userId)
     if key is not None:
         user.key = key
-        user.status = USER_STATUS_ALLGOOD
+        user.stateTrans('init', 'getKey')
     else:
-        user.status = USER_STATUS_SETTINGKEY
+        user.state = 'settingChatKey'
         await message.reply('请输入Openai API Key：')
         
 # -----------------------------------------------------------------------------
 @dp.message_handler(commands=['resetall',])
-async def resetAll(message: types.Message):
+async def reset_all(message: types.Message):
     if message.chat.type == 'private':
+        if await isDebugingNdeploying(message): 
+            print(f'{message.chat.first_name}发起连接')
+            return
         if message.chat.id in users:
             users.pop(message.chat.id)
             deleteUser(cursor, connection, message.chat.id)
@@ -71,6 +90,7 @@ async def resetAll(message: types.Message):
 @dp.message_handler(commands=['start', 'about', 'help'])
 async def welcome(message: types.Message):
     if message.chat.type == 'private':
+        if await isDebugingNdeploying(message): return
         await message.answer(ABOUT, parse_mode='MarkdownV2', disable_web_page_preview=True)
         await initUser(message)
 
@@ -82,22 +102,156 @@ async def welcome(message: types.Message):
         userId = message.chat.id 
         if userId not in users:
             print(f'新用户【{message.chat.first_name}】发起连接')
-            users[userId] = User(id=userId, cursor=cursor, connection=connection)
+            users[userId] = User(name=message.chat.first_name, id=userId, cursor=cursor, connection=connection)
             users[userId].key = getUserKey(cursor, connection, userId)   
-        users[userId].status = USER_STATUS_SETTINGKEY
+        user = users[userId]
+        user.stateTrans('allGood', 'setApiKey')
 
-        text = f'当前OpenAI API Key设置为:\n\n{users[userId].key}\n\n请回复新API Key进行修改（回复“取消”放弃修改）：' if users[userId].key is not None else '当前未设置OpenAI API Key，请回复API Key进行设定：'
-        await message.reply(text)
+        if user.state == 'settingChatKey':
+            text = f'当前OpenAI API Key设置为:\n\n{user.key}\n\n请[在此处查看你的API Key](https://platform\.openai\.com/account/api-keys)，回复Key进行修改（回复“取消”放弃修改）：' if user.key is not None else '当前未设置OpenAI API Key，请[在此处查看你的API Key](https://platform\.openai\.com/account/api-keys)，回复Key进行设定：'
+            text = '\\-'.join(text.split('-'))
+            await message.reply(text, parse_mode='MarkdownV2')
 
-# 设置上下文长度
-@dp.message_handler(commands=['setcontextlen', ])
-async def welcome(message: types.Message):
+# 设置 Stable diffusion API Key
+@dp.message_handler(commands=['setimgkey', ])
+async def set_context_len(message: types.Message):
     if message.chat.type == 'private':
         if await isDebugingNdeploying(message): return
         await initUser(message)
         user = users[message.chat.id]
-        if user.status == USER_STATUS_ALLGOOD:
-            user.status = USER_STATUS_SETTINGCONTEXT
+        user.stateTrans('allGood', 'setImgKey')
+        if user.state == 'settingImgKey':
+            text = f'当前Stable diffusion API Key设置为:\n\n{user.imgKey}\n\n请[在此处查看你的API Key](https://beta\.dreamstudio\.ai/account)，回复Key进行修改（回复“取消”放弃修改）：' if user.imgKey is not None else '当前未设置Stable diffusion API Key，请[在此处查看你的API Key](https://beta\.dreamstudio\.ai/account)，回复Key进行修改（回复“取消”放弃修改）：'
+            text = '\\-'.join(text.split('-'))
+            await message.reply(text, parse_mode='MarkdownV2')
+
+@dp.message_handler(commands=['howtogetimg', ])
+async def how_to_get_img(message: types.Message):
+    if message.chat.type == 'private':
+        if await isDebugingNdeploying(message): return
+        await initUser(message)
+        text = '要使用图像生成功能，请先点击左下角菜单绑定 stable diffusion API key，然后仿照以下格式生成图像\n\n'
+        text += '/img 夕阳下梦幻般的沙滩和粉色天空，写实风格\n'
+        text += '/img 午夜，赛博朋克机械狗走过小巷，科幻风格\n'
+        text += '/img 双马尾少女，动漫风格\n'
+        text += '/img 从空中鸟瞰帝国大厦，电影风格\n\n'
+        text += '以上操作会先调起和上下文无关的GPT请求来生成prompt，再去生成图像。如果您熟悉stable diffusion模型的prompt编写技巧，也可以仿照以下格式给定prompt来生成图像\n\n'
+        text += '/prompt A silver mech horse running in a dark valley, in the night, Beeple, Kaino University, high-definition picture, unreal engine, cyberpunk'
+        await message.answer(text)
+
+# 调用 Stable diffusion 生成图像
+@dp.message_handler(regexp='^/img.*')
+async def get_img(message: types.Message):
+    if message.chat.type == 'private':
+        if await isDebugingNdeploying(message): return
+        await initUser(message)
+        user = users[message.chat.id]
+        if user.imgKey is None:
+            await message.answer('要使用图像生成功能，请先点击左下角菜单绑定 stable diffusion API key')
+            return
+
+        if message.text[4:].strip() == '':
+            await message.answer('未检测到图像描述信息，请仿照以下格式生成图像\n\n/img 夕阳下梦幻般的沙滩和粉色天空，写实风格')
+            return
+            
+        imgPrompt = IMGPROMPT + message.text[4:].strip()
+        user.stateTrans('allGood', 'img')
+        if user.state == 'creatingImg':
+            try:
+                reply = await asyncio.to_thread(user.getReply, imgPrompt)
+                await message.answer('正在使用以下prompt生成图像，请稍候\n'+'-'*35+f'\n\n{reply}')
+                answers = gen_img(user.imgKey, reply)
+            except Exception as e:
+                await message.answer('出错了...\n\n'+str(e))
+                print(f'[get reply error]: user{message.chat.first_name}', e)
+                user.stateTrans('creatingImg', 'imgFailed')
+                return
+            
+            print(reply)
+            try:
+                for resp in answers:
+                    if len(resp.artifacts) != 0:
+                        artifact = resp.artifacts[0]
+                        if artifact.finish_reason == generation.FILTER:
+                            raise ValueError("Your request activated the API's safety filters and could not be processed. Please modify the prompt and try again.")
+                        if artifact.type == generation.ARTIFACT_IMAGE:
+                            photo_bytes = io.BytesIO(artifact.binary)
+                            photo_file = types.InputFile(photo_bytes)
+                            await bot.send_photo(chat_id=user.id, photo=photo_file)
+                            user.stateTrans('creatingImg', 'imgDone')
+                            return
+            except grpc.RpcError as e:
+                if e.code() == grpc.StatusCode.UNAUTHENTICATED:
+                    error = f"Authentication failed: {e.details()}" 
+                else:
+                    error = f"RPC failed with error code: {e.code()}" 
+            except Exception as e:
+                error = str(e)
+
+            await message.answer('出错了...\n\n'+error)       
+            print(f'[get reply error]: user{message.chat.first_name}', error)
+            user.stateTrans('creatingImg', 'imgFailed')
+
+# 调用 Stable diffusion 生成图像
+@dp.message_handler(regexp='^/prompt.*')
+async def get_img(message: types.Message):
+    if message.chat.type == 'private':
+        if await isDebugingNdeploying(message): return
+        await initUser(message)
+        user = users[message.chat.id]
+        if user.imgKey is None:
+            await message.answer('要使用图像生成功能，请先点击左下角菜单绑定 stable diffusion API key')
+            return
+
+        if message.text[4:].strip() == '':
+            await message.answer('未检测到图像描述信息，请仿照以下格式生成图像\n\n/prompt A silver mech horse running in a dark valley, in the night, Beeple, Kaino University, high-definition picture, unreal engine, cyberpunk')
+            return
+            
+        imgPrompt = message.text[7:].strip()
+        user.stateTrans('allGood', 'img')
+        if user.state == 'creatingImg':
+            try:
+                await message.answer('正在使用以下prompt生成图像，请稍候\n'+'-'*35+f'\n\n{imgPrompt}')
+                answers = gen_img(user.imgKey, imgPrompt)
+            except Exception as e:
+                await message.answer('出错了...\n\n'+str(e))
+                print(f'[get reply error]: user{message.chat.first_name}', e)
+                user.stateTrans('creatingImg', 'imgFailed')
+                return
+            
+            try:
+                for resp in answers:
+                    if len(resp.artifacts) != 0:
+                        artifact = resp.artifacts[0]
+                        if artifact.finish_reason == generation.FILTER:
+                            raise ValueError("Your request activated the API's safety filters and could not be processed. Please modify the prompt and try again.")
+                        if artifact.type == generation.ARTIFACT_IMAGE:
+                            photo_bytes = io.BytesIO(artifact.binary)
+                            photo_file = types.InputFile(photo_bytes)
+                            await bot.send_photo(chat_id=user.id, photo=photo_file)
+                            user.stateTrans('creatingImg', 'imgDone')
+                            return
+            except grpc.RpcError as e:
+                if e.code() == grpc.StatusCode.UNAUTHENTICATED:
+                    error = f"Authentication failed: {e.details()}" 
+                else:
+                    error = f"RPC failed with error code: {e.code()}" 
+            except Exception as e:
+                error = str(e)
+
+            await message.answer('出错了...\n\n'+error)       
+            print(f'[get reply error]: user{message.chat.first_name}', error)
+            user.stateTrans('creatingImg', 'imgFailed')
+
+# 设置上下文长度
+@dp.message_handler(commands=['setcontextlen', ])
+async def set_context_len(message: types.Message):
+    if message.chat.type == 'private':
+        if await isDebugingNdeploying(message): return
+        await initUser(message)
+        user = users[message.chat.id]
+        if user.state == 'allGood':
+            user.stateTrans('allGood', 'setConextLen')
             await message.reply(f'当前记忆上下文长度为【{user.contextMaxLen}】回合对话，请回复数字进行修改（注意这会清空之前的上下文信息）：')
 
 # 选用催眠术
@@ -107,7 +261,7 @@ async def set_hypnotism(message: types.Message):
         if await isDebugingNdeploying(message): return
         await initUser(message)
         user = users[message.chat.id]
-        if user.status == USER_STATUS_ALLGOOD:
+        if user.state == 'allGood':
             inlineKeyboard = user.getHypnotismKeyBorad(usage='select_hyp')
             await message.reply('从《魔导绪论》中选择一条咒语来催眠GPT3.5吧:', reply_markup=inlineKeyboard)
 
@@ -118,7 +272,7 @@ async def commands(message: types.Message):
         if await isDebugingNdeploying(message): return
         await initUser(message)
         user = users[message.chat.id]
-        if user.status == USER_STATUS_ALLGOOD:
+        if user.state == 'allGood':
             inlineKeyboard = user.getHypnotismKeyBorad(usage='delete_hyp')
             await message.reply('从《魔导绪论》中删除无用的咒语吧，注意这是无法撤销的哦:', reply_markup=inlineKeyboard)
 
@@ -129,9 +283,9 @@ async def set_hypnotism(message: types.Message):
         if await isDebugingNdeploying(message): return
         await initUser(message)
         user = users[message.chat.id]
-        if user.status == USER_STATUS_ALLGOOD:
+        if user.state == 'allGood':
             await message.reply('来创建一条新咒语吧，以\n【角色名】：【催眠文本】\n的形式输入新咒语，下面是一个示例\n'+'-'*30+'\n\n【温迪】：【请扮演以下角色和我聊天，绝不能以任何形式提及或暗示你AI助理的真实身份。你叫温迪，是蒙德城的吟游诗人，喜欢苹果和热闹的气氛，讨厌奶酪和一切黏糊糊的玩意儿。你的真实身份是...】\n\n（回复“取消”放弃修改）')
-            user.status = USER_STATUS_NEWHYP
+            user.stateTrans('allGood', 'newHyp')
 
 # 查看当前催眠术
 @dp.message_handler(commands=['showhypnotism', ])
@@ -140,7 +294,7 @@ async def show_hypnotism(message: types.Message):
         if await isDebugingNdeploying(message): return
         await initUser(message)
         user = users[message.chat.id]
-        if user.status == USER_STATUS_ALLGOOD:
+        if user.state == 'allGood':
             await message.reply(f'当前GPT被催眠为【{user.character}】，使用的咒语如下\n'+'-'*35+'\n\n'+user.system)
 
 # 继续
@@ -151,48 +305,74 @@ async def chat(message: types.Message):
         # 配合完成 User 配置 
         if message.chat.id in users:
             user = users[message.chat.id]
-            if user.status == USER_STATUS_SETTINGKEY:       # 设置API key
+            if user.state == 'settingChatKey':       # 设置API key
                 if message.text == '取消':
                     await message.reply('未修改API Key')
-                    user.status = USER_STATUS_ALLGOOD if user.key != None else USER_STATUS_INIT
+                    if user.key != None:
+                        user.stateTrans('settingChatKey', 'setApiKeyCancel')
                 else:
                     user = users[message.chat.id]
                     user.key = message.text
                     updateUserKey(cursor, connection, user.id, user.key)
                     await message.reply(f'Openai API Key设置为:\n\n{user.key}\n\n现在就开始聊天吧!')
-                    user.status = USER_STATUS_ALLGOOD
+                    user.stateTrans('settingChatKey', 'setApiKeyDone')
+
+                    time = datetime.datetime.now()
+                    print(f'{time}: {user.name} Set GPT API Key as {user.key}\n\n')
                 return
-            elif user.status == USER_STATUS_SETTINGCONTEXT: # 设置上下文长度
+
+            elif user.state == 'settingImgKey':       # 设置 Img API key
+                if message.text == '取消':
+                    await message.reply('未修改API Key')
+                    if user.imgKey != None:
+                        user.stateTrans('settingImgKey', 'setImgKeyCancel')
+                else:
+                    user = users[message.chat.id]
+                    user.imgKey = message.text
+                    updateUserImgKey(cursor, connection, user.id, user.imgKey)
+                    await message.reply(f'Stable Diffusion API Key设置为:\n\n{user.imgKey}\n\n请点击左下菜单或 /howtogetimg 查看生成图像的正确方式')
+                    user.stateTrans('settingImgKey', 'setImgKeyDone')
+
+                    time = datetime.datetime.now()
+                    print(f'{time}: {user.name} Set SD API Key as {user.key}\n\n')
+                return
+
+            elif user.state == 'settingContextLen': # 设置上下文长度
+                lenContext = 5
                 try:
-                    contextLen = int(message.text)
+                    lenContext = int(message.text)
                 except Exception as e:
                     await message.reply(f'出错了...没有进行修改\n\n'+str(e))
-                    user.status = USER_STATUS_ALLGOOD
-                if contextLen <= 0:
+                    user.stateTrans('settingContextLen', 'setConextLenCancel')
+                if lenContext <= 0:
                     await message.reply(f'非法长度，没有进行修改')
-                    user.status = USER_STATUS_ALLGOOD
+                    user.stateTrans('settingContextLen', 'setConextLenCancel')
                 else:
-                    user.contextMaxLen = contextLen
+                    user.contextMaxLen = lenContext
                     user.clearHistory()
                     await message.reply(f'当前记忆上下文长度为【{user.contextMaxLen}】回合对话')
-                    user.status = USER_STATUS_ALLGOOD
+                    user.stateTrans('settingContextLen', 'setConextLenDone')
+
+                    time = datetime.datetime.now()
+                    print(f'{time}: {user.name} Set context len as {user.contextMaxLen}\n\n')
                 return
-            elif user.status == USER_STATUS_NEWHYP:
+
+            elif user.state == 'creatingNewHyp':
                 text = message.text
                 if message.text == '取消':
                     await message.reply('已取消')
-                    user.status = USER_STATUS_ALLGOOD
+                    user.stateTrans('creatingNewHyp', 'newHypCancel')
                     return
                 try:
                     character = text[text.find('【')+1: text.find('】')]
                     hyp = text[text.find('【',1)+1: text.rfind('】')]
                     if len(character) > 10:
                         await message.reply(f'出错了...没有进行修改\n\n角色名“{character}”太长了，请注意是否误把咒语文本写到角色名位置，要按照指定格式编写')
-                        user.status = USER_STATUS_ALLGOOD
+                        user.stateTrans('creatingNewHyp', 'newHypCancel')
                         return 
                 except Exception as e:
                     await message.reply(f'出错了...没有进行修改\n\n'+str(e))
-                    user.status = USER_STATUS_ALLGOOD
+                    user.stateTrans('creatingNewHyp', 'newHypCancel')
                     return
                 if character in user.hypnotism:
                     await message.reply(f'{character}这条咒语已经存在啦，请重新输入')
@@ -202,7 +382,10 @@ async def chat(message: types.Message):
                 updateUserPrompts(cursor, connection, user.id, user.hypnotism)
                 user.clearHistory()
                 await message.reply(f'新咒语【{character}】添加成功，想要使用这条咒语的话，需要先在《魔导绪论》中点选催眠哦')
-                user.status = USER_STATUS_ALLGOOD
+                user.stateTrans('creatingNewHyp', 'newHypDone')
+
+                time = datetime.datetime.now()
+                print(f'{time}: {user.name} 创建了新咒语：【{character}】：【{hyp}】\n\n')
                 return
 
         # User初始化
@@ -210,16 +393,20 @@ async def chat(message: types.Message):
 
         # 进行聊天
         user = users[message.chat.id]
-        if user.status == USER_STATUS_ALLGOOD:
+        if user.state == 'allGood':
             try:
-                print(f'{message.chat.first_name}发起了API请求')
+                #print(f'{message.chat.first_name}发起了API请求')
                 reply = await asyncio.to_thread(users[message.chat.id].getReply, message.text)
+
+                time = datetime.datetime.now()
+                print(f'{time}:【{user.name}】：{message.text}\n{time}:【{user.character}】:{reply}\n\n')
             except UnicodeEncodeError as e:
                 reply = f'出错了...\n\n{str(e)}\n\n这很可能是因为您输入了带中文的API Key，如果您没有API Key，请在 "左下角菜单->使用指南" 中找公共Key重新绑定'        
                 print(f'[get reply error]: user{message.chat.first_name}', e)
             except Exception as e:
                 reply = '出错了...\n\n'+str(e)        
                 print(f'[get reply error]: user{message.chat.first_name}', e)
+
             try:
                 try:
                     await message.answer(reply, parse_mode='Markdown')
@@ -236,6 +423,7 @@ async def chat(message: types.Message):
                     await message.answer(reply, parse_mode='Markdown')
                 except Exception:
                     await message.answer(reply)
+            #user.summaryCountDown -= 1 # 现在关闭内部总结
         else:
             pass
 
@@ -269,6 +457,8 @@ async def start():
                             BotCommand('deletehypnotism','删除咒语'),
                             BotCommand('setcontextlen','设置上下文长度'),
                             BotCommand('setapikey','设置OpenAI Key'),
+                            BotCommand('setimgkey','设置Stable diffusion Key'),
+                            BotCommand('howtogetimg','生成图像示范'),
                             BotCommand('about','使用指南'),
                             BotCommand('resetall','遇到严重错误时点此重置机器人')])
 
@@ -292,6 +482,8 @@ def connectionGuard(process):
         time.sleep(3)
 
 if __name__ == '__main__':
+    #clearAllPrompts(cursor,connection,DEFAULT_HYPNOTISM)
+
     # 在子进程中启动 bot
     p = multiprocessing.Process(target=botActivate)
     p.start()
