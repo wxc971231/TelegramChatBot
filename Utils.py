@@ -1,6 +1,7 @@
 import os
 from stability_sdk import client
 import stability_sdk.interfaces.gooseai.generation.generation_pb2 as generation
+import aiogram
 
 # 状态定义
 states=['init', 
@@ -9,6 +10,7 @@ states=['init',
         'settingImgKey', 
         'settingContextLen', 
         'creatingNewHyp',
+        'edittingHyp',
         'creatingImg']
  
 # 定义状态转移
@@ -19,6 +21,7 @@ transitions = [
     {'trigger': 'setImgKey',            'source': 'allGood',            'dest': 'settingImgKey'},
     {'trigger': 'setConextLen',         'source': 'allGood',            'dest': 'settingContextLen'},
     {'trigger': 'newHyp',               'source': 'allGood',            'dest': 'creatingNewHyp'},
+    {'trigger': 'editHyp',              'source': 'allGood',            'dest': 'edittingHyp'},
     {'trigger': 'img',                  'source': 'allGood',            'dest': 'creatingImg'},
     {'trigger': 'imgDone',              'source': 'creatingImg',        'dest': 'allGood'},
     {'trigger': 'imgFailed',            'source': 'creatingImg',        'dest': 'allGood'},
@@ -30,6 +33,8 @@ transitions = [
     {'trigger': 'setConextLenDone',     'source': 'settingContextLen',  'dest': 'allGood'},
     {'trigger': 'newHypCancel',         'source': 'creatingNewHyp',     'dest': 'allGood'},
     {'trigger': 'newHypDone',           'source': 'creatingNewHyp',     'dest': 'allGood'},
+    {'trigger': 'editHypCancel',        'source': 'edittingHyp',        'dest': 'allGood'},
+    {'trigger': 'editHypDone',          'source': 'edittingHyp',        'dest': 'allGood'},
     {'trigger': 'reset',                'source': 'allGood',            'dest': 'init'}]
 
 
@@ -62,4 +67,16 @@ def gen_img(key, prompt):
                                                     # (Available Samplers: ddim, plms, k_euler, k_euler_ancestral, k_heun, k_dpm_2, k_dpm_2_ancestral, k_dpmpp_2s_ancestral, k_lms, k_dpmpp_2m)
     )
     return answers
-        
+    
+async def editInMarkdown(user, text):
+    if text != '':
+        try:
+            try:
+                await user.currentReplyMsg.edit_text(text, parse_mode='Markdown')
+            except aiogram.exceptions.MessageNotModified:
+                pass
+        except Exception:
+            try:
+                await user.currentReplyMsg.edit_text(text)
+            except aiogram.exceptions.MessageNotModified:
+                pass

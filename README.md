@@ -5,17 +5,33 @@
 
 
 
-## Requirements
+## Setup
 
-- python 3.10
+1. Create a new virtual environment with python 3.10, here is an example with anaconda
 
-- openai 0.27.0
+   ```shell
+   conda create -n ChatBot python=3.10
+   ```
 
-- aiogram 2.25.1
+2. Activate the virtual environment in anaconda
 
-- pymysql 1.0.2
+   ```shell
+   activate ChatBot
+   ```
 
-- MySQL 5.7
+3. Make sure you are in the project path, install all requirement lib by 
+
+   ```shell
+   pip install -r requirements.txt
+   ```
+
+   If the download process is too slow, Tsinghua Mirror source is recommended
+
+   ```shell
+   pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+   ```
+
+4. Install MySQL 5.7
 
 
 
@@ -23,6 +39,8 @@
 ## State Machine
 
 <img src="img/StateMachine.png" style="zoom: 67%;" />
+
+
 
 ----------------
 

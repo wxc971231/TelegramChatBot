@@ -1,10 +1,11 @@
 from aiogram import Bot, Dispatcher, executor, types
-from aiogram.types import BotCommand
+from aiogram.types import BotCommand, InputFile
 import aiogram
 import asyncio
 from User import User
 from Data import getDatabaseReady, getUserKey, getUserImgKey, updateUserKey, updateUserPrompts, deleteUser, updateUserImgKey
 from dotenv import load_dotenv, find_dotenv
+from Utils import editInMarkdown
 import os
 import datetime
 import pymysql
@@ -45,7 +46,7 @@ async def initUser(message):
     if userId not in users:
         print(f'新用户【{message.chat.first_name}】发起连接')
         users[userId] = User(name=message.chat.first_name, id=userId, cursor=cursor, connection=connection)
-        await message.answer(f'*本机器人正在对图像生成功能进行debug测试，稳定的聊天服务请使用 @jokerController\_bot*。有任何问题，请加入讨论群 @nekolalala 反馈', parse_mode='MarkdownV2')
+        await message.answer('本机器人正在开发新功能，请访问 @jokerController_bot 体验完整的聊天服务，有任何问题，请加入讨论群 @nekolalala 反馈')
     user = users[userId]
 
     if ISDEBUGING and ISDEPLOYING: 
@@ -125,6 +126,7 @@ async def set_context_len(message: types.Message):
             text = '\\-'.join(text.split('-'))
             await message.reply(text, parse_mode='MarkdownV2')
 
+# 生成图像示范
 @dp.message_handler(commands=['howtogetimg', ])
 async def how_to_get_img(message: types.Message):
     if message.chat.type == 'private':
@@ -158,8 +160,9 @@ async def get_img(message: types.Message):
         user.stateTrans('allGood', 'img')
         if user.state == 'creatingImg':
             try:
-                reply = await asyncio.to_thread(user.getReply, imgPrompt)
-                await message.answer('正在使用以下prompt生成图像，请稍候\n'+'-'*35+f'\n\n{reply}')
+                note = await message.answer('正在使用GPT模型翻译prompt，请稍候')
+                reply = await asyncio.to_thread(user.getReply, imgPrompt, False)
+                await note.edit_text('正在使用以下prompt生成图像，请稍候\n'+'-'*35+f'\n\n{reply}')
                 answers = gen_img(user.imgKey, reply)
             except Exception as e:
                 await message.answer('出错了...\n\n'+str(e))
@@ -230,6 +233,12 @@ async def get_img(message: types.Message):
                             photo_file = types.InputFile(photo_bytes)
                             await bot.send_photo(chat_id=user.id, photo=photo_file)
                             user.stateTrans('creatingImg', 'imgDone')
+                            
+                            try:
+                                img = Image.open(io.BytesIO(artifact.binary))
+                                img.save(f'./Image/{str(artifact.seed)}.png') # Save our generated images with their seed number as the filename.                            except Exception:
+                            except Exception:
+                                pass
                             return
             except grpc.RpcError as e:
                 if e.code() == grpc.StatusCode.UNAUTHENTICATED:
@@ -264,6 +273,18 @@ async def set_hypnotism(message: types.Message):
         if user.state == 'allGood':
             inlineKeyboard = user.getHypnotismKeyBorad(usage='select_hyp')
             await message.reply('从《魔导绪论》中选择一条咒语来催眠GPT3.5吧:', reply_markup=inlineKeyboard)
+
+# 编辑催眠术
+@dp.message_handler(commands=['edithypnotism', ])
+async def set_hypnotism(message: types.Message):
+    if message.chat.type == 'private':
+        if await isDebugingNdeploying(message): return
+        await initUser(message)
+        user = users[message.chat.id]
+        if user.state == 'allGood':
+            inlineKeyboard = user.getHypnotismKeyBorad(usage='edit_hyp')
+            await message.reply('从《魔导绪论》中选择要编辑的咒语:', reply_markup=inlineKeyboard)
+            user.stateTrans('allGood', 'editHyp')
 
 # 删除催眠术
 @dp.message_handler(commands=['deletehypnotism', ])
@@ -302,10 +323,14 @@ async def show_hypnotism(message: types.Message):
 async def chat(message: types.Message):
     if message.chat.type == 'private':   
         if await isDebugingNdeploying(message): return
+        await initUser(message)
+        
         # 配合完成 User 配置 
         if message.chat.id in users:
             user = users[message.chat.id]
-            if user.state == 'settingChatKey':       # 设置API key
+
+            # 设置API key
+            if user.state == 'settingChatKey':       
                 if message.text == '取消':
                     await message.reply('未修改API Key')
                     if user.key != None:
@@ -316,12 +341,10 @@ async def chat(message: types.Message):
                     updateUserKey(cursor, connection, user.id, user.key)
                     await message.reply(f'Openai API Key设置为:\n\n{user.key}\n\n现在就开始聊天吧!')
                     user.stateTrans('settingChatKey', 'setApiKeyDone')
-
-                    time = datetime.datetime.now()
-                    print(f'{time}: {user.name} Set GPT API Key as {user.key}\n\n')
                 return
 
-            elif user.state == 'settingImgKey':       # 设置 Img API key
+            # 设置 Img API key
+            elif user.state == 'settingImgKey':       
                 if message.text == '取消':
                     await message.reply('未修改API Key')
                     if user.imgKey != None:
@@ -332,12 +355,10 @@ async def chat(message: types.Message):
                     updateUserImgKey(cursor, connection, user.id, user.imgKey)
                     await message.reply(f'Stable Diffusion API Key设置为:\n\n{user.imgKey}\n\n请点击左下菜单或 /howtogetimg 查看生成图像的正确方式')
                     user.stateTrans('settingImgKey', 'setImgKeyDone')
-
-                    time = datetime.datetime.now()
-                    print(f'{time}: {user.name} Set SD API Key as {user.key}\n\n')
                 return
 
-            elif user.state == 'settingContextLen': # 设置上下文长度
+            # 设置上下文长度
+            elif user.state == 'settingContextLen': 
                 lenContext = 5
                 try:
                     lenContext = int(message.text)
@@ -352,11 +373,9 @@ async def chat(message: types.Message):
                     user.clearHistory()
                     await message.reply(f'当前记忆上下文长度为【{user.contextMaxLen}】回合对话')
                     user.stateTrans('settingContextLen', 'setConextLenDone')
-
-                    time = datetime.datetime.now()
-                    print(f'{time}: {user.name} Set context len as {user.contextMaxLen}\n\n')
                 return
 
+            # 创建新咒语
             elif user.state == 'creatingNewHyp':
                 text = message.text
                 if message.text == '取消':
@@ -383,51 +402,79 @@ async def chat(message: types.Message):
                 user.clearHistory()
                 await message.reply(f'新咒语【{character}】添加成功，想要使用这条咒语的话，需要先在《魔导绪论》中点选催眠哦')
                 user.stateTrans('creatingNewHyp', 'newHypDone')
-
-                time = datetime.datetime.now()
-                print(f'{time}: {user.name} 创建了新咒语：【{character}】：【{hyp}】\n\n')
-                return
-
-        # User初始化
-        await initUser(message)
+                return       
+            
+            # 编辑咒语
+            elif user.state == 'edittingHyp':
+                text = message.text
+                user.hypnotism[user.currentEdittingChar] = text
+                updateUserPrompts(cursor, connection, user.id, user.hypnotism)
+                await message.reply(f'咒语【{user.currentEdittingChar}】编辑完成！想要使用这条咒语的话，需要先在《魔导绪论》中点选催眠哦')
+                user.stateTrans('edittingHyp', 'editHypDone')
+                return       
 
         # 进行聊天
         user = users[message.chat.id]
         if user.state == 'allGood':
             try:
-                #print(f'{message.chat.first_name}发起了API请求')
-                reply = await asyncio.to_thread(users[message.chat.id].getReply, message.text)
+                # 清除上一句回复的重新生成按钮
+                if user.currentReplyMsg is not None:
+                    try:
+                        await user.currentReplyMsg.edit_reply_markup(None)
+                    except aiogram.exceptions.MessageNotModified:
+                        pass
+                    
+                # openai请求
+                user.currentReplyMsg = await message.answer(f'{user.character} 正在思考...')
+                response = user.getReply(message.text, True)
 
-                time = datetime.datetime.now()
-                print(f'{time}:【{user.name}】：{message.text}\n{time}:【{user.character}】:{reply}\n\n')
+                # 流式打印回复
+                reply, replys = '', []
+                for chunk in response:
+                    repLen = len(reply)
+                    content = chunk['choices'][0]['delta'].get('content', '')
+
+                    # 回复太长则分段
+                    if repLen > 4000:
+                        # 完成上一段的回复
+                        await editInMarkdown(user, reply)   
+                        replys.append(reply)
+                        # 新启一段
+                        user.currentReplyMsg = await message.answer(content)
+                        reply, repLen = content, len(reply)
+
+                    # 每15个字符更新一次，如果每个字符都更新会很慢
+                    if repLen != 0 and repLen % 15 == 0:
+                        await editInMarkdown(user, reply)
+
+                    reply += content
+    
+                # 完成最后一段回复，增加重新生成按钮
+                replys.append(reply)
+                inlineKeyboard = user.getReGenKeyBorad()
+                await editInMarkdown(user, reply)
+                await user.currentReplyMsg.edit_reply_markup(inlineKeyboard)
+            
+                # 还原完整回复
+                full_reply = ''.join(replys)
+
+                # 更新上下文
+                if user.state != 'creatingImg':
+                    user.history['assistant'].insert(0, full_reply)
+
             except UnicodeEncodeError as e:
                 reply = f'出错了...\n\n{str(e)}\n\n这很可能是因为您输入了带中文的API Key，如果您没有API Key，请在 "左下角菜单->使用指南" 中找公共Key重新绑定'        
+                await editInMarkdown(user, reply)
                 print(f'[get reply error]: user{message.chat.first_name}', e)
             except Exception as e:
                 reply = '出错了...\n\n'+str(e)        
-                print(f'[get reply error]: user{message.chat.first_name}', e)
-
-            try:
-                try:
-                    await message.answer(reply, parse_mode='Markdown')
-                except Exception:
-                    await message.answer(reply)
-            except aiogram.utils.exceptions.MessageIsTooLong:
-                while len(reply) > 4000:
-                    try:
-                        await message.answer(reply[:4000], parse_mode='Markdown')
-                    except Exception:
-                        await message.answer(reply[:4000])
-                    reply = reply[4000:]
-                try:
-                    await message.answer(reply, parse_mode='Markdown')
-                except Exception:
-                    await message.answer(reply)
-            #user.summaryCountDown -= 1 # 现在关闭内部总结
+                await editInMarkdown(user, reply)
+                print(f'[get reply error]: user{message.chat.first_name}', e)            
         else:
             pass
 
 # -----------------------------------------------------------------------------
+# 选用催眠术
 @dp.callback_query_handler(lambda call: call.data.startswith('select_hyp'))
 async def selectHypnotism(call: types.CallbackQuery, ):
     user = users[call.message.chat.id]
@@ -436,8 +483,9 @@ async def selectHypnotism(call: types.CallbackQuery, ):
     user.clearHistory()
     await call.message.answer(f'已经使用如下咒语将 GPT 催眠为【{user.character}】，可以随意聊天，催眠术不会被遗忘\n'+'-'*35+'\n\n'+user.system)
 
+# 删除催眠术
 @dp.callback_query_handler(lambda call: call.data.startswith('delete_hyp'))
-async def selectHypnotism(call: types.CallbackQuery, ):
+async def deleteHypnotism(call: types.CallbackQuery, ):
     character = call.data[len('delete_hyp'):]
     if character == '【取消修改】':
         await call.message.answer('已取消，没有删除咒语')
@@ -449,11 +497,73 @@ async def selectHypnotism(call: types.CallbackQuery, ):
     user.clearHistory()
     await call.message.answer(f'已将咒语【{character}】删除，原文为如下\n'+'-'*35+'\n\n'+hypDeleted)
 
+# 编辑催眠术
+@dp.callback_query_handler(lambda call: call.data.startswith('edit_hyp'))
+async def editHypnotism(call: types.CallbackQuery, ):
+    user = users[call.message.chat.id]
+    character = call.data[len('edit_hyp'):]
+    if character == '【取消修改】':
+        await call.message.answer('已取消，没有编辑咒语')
+        user.stateTrans('edittingHyp', 'editHypCancel')
+        return
+    hypEditting = user.hypnotism[character]
+    user.currentEdittingChar = character
+    await call.message.answer(f'请直接输入咒语【{character}】的新文本，当前咒语文本如下\n'+'-'*35+'\n\n'+hypEditting)
+
+# 重新生成回答
+@dp.callback_query_handler(lambda call: call.data == 'regenerate')
+async def regenerate(call: types.CallbackQuery, ):
+    user = users[call.message.chat.id]
+    message = call.message
+    
+    if user.currentReplyMsg is not None:
+        await user.currentReplyMsg.edit_reply_markup(None)
+    await editInMarkdown(user, f'{user.character} 正在思考...')
+    
+    # 从上下文中删除上一个回复
+    user.history['assistant'].pop(0)
+
+    # 流式打印回复
+    response = user.getReply('', True)
+    reply, replys = '', []
+    for chunk in response:
+        repLen = len(reply)
+        content = chunk['choices'][0]['delta'].get('content', '')
+
+        # 回复太长则分段
+        if repLen > 4000:
+            # 完成上一段的回复
+            await editInMarkdown(user, reply)   
+            replys.append(reply)
+            # 新启一段
+            user.currentReplyMsg = await message.answer(content)
+            reply, repLen = content, len(reply)
+
+        # 每15个字符更新一次，如果每个字符都更新会很慢
+        if repLen != 0 and repLen % 15 == 0:
+            await editInMarkdown(user, reply)
+
+        # 拼接当前回复
+        reply += content
+
+    # 打印最后一段回复，增加重新生成按钮
+    replys.append(reply)
+    inlineKeyboard = user.getReGenKeyBorad()
+    await editInMarkdown(user, reply)
+    await user.currentReplyMsg.edit_reply_markup(inlineKeyboard)
+
+    # 还原完整回复
+    full_reply = ''.join(replys)
+
+    # 更新上下文
+    user.history['assistant'].insert(0, full_reply)
+
 # -----------------------------------------------------------------------------
 async def start():
     await bot.set_my_commands([BotCommand('sethypnotism','魔导绪论'),
                             BotCommand('showhypnotism','查看当前咒语'),
                             BotCommand('newhypnotism','创建新咒语'),
+                            BotCommand('edithypnotism','编辑咒语'),
                             BotCommand('deletehypnotism','删除咒语'),
                             BotCommand('setcontextlen','设置上下文长度'),
                             BotCommand('setapikey','设置OpenAI Key'),
