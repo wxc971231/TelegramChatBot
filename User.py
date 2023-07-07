@@ -10,6 +10,9 @@ USER_STATUS_SETTINGCONTEXT = 2
 USER_STATUS_NEWHYP = 3
 USER_STATUS_ALLGOOD = 4
 
+MODEL_GPT35 = 'gpt-3.5-turbo'
+MODEL_GPT40 = 'gpt-4'
+
 class User():
     def __init__(self, name, id, cursor, connection, key=None) -> None:
         self.name = name
@@ -20,8 +23,9 @@ class User():
         self.connection = connection
 
         self.hypnotism = initUser(cursor, connection, id)
-        self.character = 'GPT3.5'
-        self.system = self.hypnotism[self.character]
+        self.model = MODEL_GPT35
+        self.character = 'GPT'
+        self.system = ''
         self.contextMaxLen = 5
         self.history = {'user':[], 'assistant':[]}
 
@@ -53,14 +57,14 @@ class User():
 
             # 如果 text 为空，是在重新生成之前的回答
             if text != '':
-                if self.system != self.hypnotism['GPT3.5']:
+                if self.character != 'GPT':
                     text += '，扮演指定角色回答。'  # 当前用户发言预处理
                 users.insert(0, text)
 
             # 组合上下文
             users = users[:self.contextMaxLen]
             assistants = assistants[:self.contextMaxLen-1]
-            message = [{"role": "system", "content": self.system},] if self.character != 'GPT3.5' else []
+            message = [{"role": "system", "content": self.system},] if self.character != 'GPT' else []
             for i in range(min(self.contextMaxLen, len(assistants)),0,-1):
                 message.append({"role": "user", "content": users[i]})
                 message.append({"role": "assistant", "content": assistants[i-1]})
@@ -74,8 +78,8 @@ class User():
     def getReply(self, text, useStreamMode=False):
         messages = self.createMessage(text)
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            api_key = self.key,
+            model=self.model,
+            api_key=self.key,
             messages=messages,
             stream=useStreamMode
         )
@@ -92,7 +96,11 @@ class User():
 
         self.hypnotism = getUserPrompts(self.cursor, self.connection, self.id)
         for character in self.hypnotism.keys():
-            inlineButton = InlineKeyboardButton(text=character, callback_data=usage+character)
+            if character.startswith('GPT'):
+                inlineButton = InlineKeyboardButton(text='GPT', callback_data=usage+'GPT')
+            else:
+                inlineButton = InlineKeyboardButton(text=character, callback_data=usage+character)
+
             inlineKeyboard.add(inlineButton)
 
         return inlineKeyboard
@@ -101,4 +109,11 @@ class User():
         inlineKeyboard = InlineKeyboardMarkup()
         inlineButton = InlineKeyboardButton(text='【重新生成这句回答】', callback_data='regenerate')     
         inlineKeyboard.add(inlineButton)
+        return inlineKeyboard
+
+    def getModelKeyBorad(self):
+        inlineKeyboard = InlineKeyboardMarkup()
+        inlineButton35 = InlineKeyboardButton(text=MODEL_GPT35, callback_data='set_model'+MODEL_GPT35)     
+        inlineButton40 = InlineKeyboardButton(text=MODEL_GPT40, callback_data='set_model'+MODEL_GPT40)     
+        inlineKeyboard.add(inlineButton35, inlineButton40)
         return inlineKeyboard

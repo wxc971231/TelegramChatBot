@@ -1,5 +1,5 @@
 from aiogram import Bot, Dispatcher, executor, types
-from aiogram.types import BotCommand, InputFile
+from aiogram.types import BotCommand
 import aiogram
 import asyncio
 from User import User
@@ -18,7 +18,6 @@ import grpc
 import stability_sdk.interfaces.gooseai.generation.generation_pb2 as generation
 import io
 import openai
-from PIL import Image
 
 load_dotenv(find_dotenv('.env'), override=True)
 
@@ -259,6 +258,19 @@ async def set_context_len(message: types.Message):
             user.stateTrans('allGood', 'setConextLen')
             await message.reply(f'当前记忆上下文长度为【{user.contextMaxLen}】回合对话，请回复数字进行修改（注意这会清空之前的上下文信息）：')
 
+# 选择模型
+@dp.message_handler(commands=['setmodel', ])
+async def set_model(message: types.Message):
+    if message.chat.type == 'private':
+        if await isDebugingNdeploying(message): return
+        await initUser(message)
+        user = users[message.chat.id]
+        if user.state == 'allGood':
+            inlineKeyboard = user.getModelKeyBorad()
+            await message.reply('选择对话使用的模型，注意只有*绑定支付方式且有过支付历史*的账户才能使用GPT4，可以在[这里](https://platform\.openai\.com/account/billing/history)查看您的账户是否有支付历史', 
+                                reply_markup=inlineKeyboard,
+                                parse_mode='MarkdownV2')
+
 # 选用催眠术
 @dp.message_handler(commands=['sethypnotism', ])
 async def set_hypnotism(message: types.Message):
@@ -268,7 +280,7 @@ async def set_hypnotism(message: types.Message):
         user = users[message.chat.id]
         if user.state == 'allGood':
             inlineKeyboard = user.getHypnotismKeyBorad(usage='select_hyp')
-            await message.reply('从《魔导绪论》中选择一条咒语来催眠GPT3.5吧:', reply_markup=inlineKeyboard)
+            await message.reply('从《魔导绪论》中选择一条咒语来催眠 GPT 模型吧:', reply_markup=inlineKeyboard)
 
 # 编辑催眠术
 @dp.message_handler(commands=['edithypnotism', ])
@@ -475,13 +487,24 @@ async def chat(message: types.Message):
 
 # -----------------------------------------------------------------------------
 # 选用催眠术
+@dp.callback_query_handler(lambda call: call.data.startswith('set_model'))
+async def selectModel(call: types.CallbackQuery, ):
+    user = users[call.message.chat.id]
+    user.model = call.data[len('set_model'):]
+    user.clearHistory()
+    await call.message.answer(f'模型已设置为【{user.model}】')
+
+# 选用催眠术
 @dp.callback_query_handler(lambda call: call.data.startswith('select_hyp'))
 async def selectHypnotism(call: types.CallbackQuery, ):
     user = users[call.message.chat.id]
     user.character = call.data[len('select_hyp'):]
-    user.system = user.hypnotism[user.character]
+    if user.character != 'GPT':
+        user.system = user.hypnotism[user.character]
+        await call.message.answer(f'已经使用如下咒语将 GPT 催眠为【{user.character}】，可以随意聊天，催眠术不会被遗忘\n'+'-'*35+'\n\n'+user.system+'\n\n'+'-'*35+'\n'+f'当前模型选择为【{user.model}】，可在菜单切换')
+    else:
+        await call.message.answer(f'不使用催眠咒语直接和 GPT 对话，当前模型选择为【{user.model}】，可在菜单切换 GPT3.5 和 GPT4.0')
     user.clearHistory()
-    await call.message.answer(f'已经使用如下咒语将 GPT 催眠为【{user.character}】，可以随意聊天，催眠术不会被遗忘\n'+'-'*35+'\n\n'+user.system)
 
 # 删除催眠术
 @dp.callback_query_handler(lambda call: call.data.startswith('delete_hyp'))
@@ -565,6 +588,7 @@ async def start():
                             BotCommand('newhypnotism','创建新咒语'),
                             BotCommand('edithypnotism','编辑咒语'),
                             BotCommand('deletehypnotism','删除咒语'),
+                            BotCommand('setmodel','选择模型'),
                             BotCommand('setcontextlen','设置上下文长度'),
                             BotCommand('setapikey','设置OpenAI Key'),
                             BotCommand('setimgkey','设置Stable diffusion Key'),

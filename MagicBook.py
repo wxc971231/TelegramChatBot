@@ -22,12 +22,12 @@ Kunkun_hyp += '如果我对你进行任何负面评价，你都要说“你干�
 Kunkun_hyp += '在你回话时，引号中的内容必须使用原句。​'
 
 
-DEFAULT_HYPNOTISM['GPT3.5'] = '不使用催眠咒语，直接和 GPT3.5 对话'
+DEFAULT_HYPNOTISM['GPT'] = '不使用催眠咒语，直接和 GPT 对话，可在菜单切换 GPT3.5 和 GPT4.0'
 DEFAULT_HYPNOTISM['Neko'] = Noke_hyp
 DEFAULT_HYPNOTISM['茨木华扇'] = Huashan_hyp
 DEFAULT_HYPNOTISM['坤坤'] = Kunkun_hyp
 
-ABOUT = '''*这是一个基于 GPT3\.5 API 开发的聊天机器人*，您可以将其催眠成指定角色与您畅聊，基本不会遗忘设定。免费使用且完全开源！（2023\.4\.1 更新stable diffusion图像生成功能）
+ABOUT = '''*这是一个基于 OpenAI GPT API 开发的聊天机器人*，您可以将其催眠成指定角色与您畅聊，基本不会遗忘设定。免费使用且完全开源！（2023\.4\.1 更新stable diffusion图像生成功能）
     1\. [使用指南](https://www\.bilibili\.com/video/BV1pM4y1C7Vk)，*请务必先看这个了解正确的催眠方法，不要像网页版那样直接在对话中催眠*
     2\. [开源仓库](https://github\.com/wxc971231/TelegramChatBot)，*求star 求star 求star！*
 
@@ -41,8 +41,6 @@ ABOUT = '''*这是一个基于 GPT3\.5 API 开发的聊天机器人*，您可以
     4\. 显示 `ERROR 'latin\-1' codec can't encode...`，这代表您可能填入了包含中文的 API Key，如果您没有 API Key 或不想将存储您的 API Key，可以使用下面的公用 Key
 
 *如果您遇到任何其他bug或有建议*，可随时联系我 @GetupEarlyTomo 反馈，另外*建议加入交流群 @nekolalala* 学习催眠技巧&了解项目动态&分享您的见解
-
-*如果您没有 openai API key 但仍想体验本机器人*，也可以暂时使用公用密钥 ```sk\-bJWSrupJ4VPxiYnw4s0UT3BlbkFJh8BQxx4yWSMFfjPnAz5I```，但这容易使您遇到上面的 Rate limit 等问题。*（公共API Key额度已经耗尽！）*
 
 ||程序有*极小*概率发生崩溃，虽然会自动重启以维持服务，但这会导致模型丧失上下文记忆，另外模型维护也会导致失忆（咒语都不会丢失），如果您遇到这些问题，非常抱歉！！||
 '''
