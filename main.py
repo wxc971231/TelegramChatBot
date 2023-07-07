@@ -17,6 +17,7 @@ import threading
 import grpc
 import stability_sdk.interfaces.gooseai.generation.generation_pb2 as generation
 import io
+import openai
 from PIL import Image
 
 load_dotenv(find_dotenv('.env'), override=True)
@@ -30,7 +31,7 @@ cursor = connection.cursor()
 
 # bot dispatcher and user object
 BOT_TOKEN = os.environ['TEST_BOT_TOKEN']
-bot = Bot(token=BOT_TOKEN, proxy='http://127.0.0.1:7890') if ISDEPLOYING else Bot(token=BOT_TOKEN, proxy='http://127.0.0.1:7890') 
+bot = Bot(token=BOT_TOKEN, proxy='http://127.0.0.1:15732') if ISDEPLOYING else Bot(token=BOT_TOKEN, proxy='http://127.0.0.1:15732') 
 dp = Dispatcher(bot)    # 调度器 
 users = {}              # 用户信息管理
 
@@ -40,13 +41,13 @@ async def isDebugingNdeploying(message):
         await message.reply('抱歉，正在维护中，请稍后访问...')
     return ISDEPLOYING and ISDEBUGING
 
-async def initUser(message):
+async def initUser(message, typing=False):
     # 建立 User 对象
     userId = message.chat.id 
     if userId not in users:
         print(f'新用户【{message.chat.first_name}】发起连接')
         users[userId] = User(name=message.chat.first_name, id=userId, cursor=cursor, connection=connection)
-        await message.answer('本机器人正在开发新功能，请访问 @jokerController_bot 体验完整的聊天服务，有任何问题，请加入讨论群 @nekolalala 反馈')
+        await message.answer('机器人维护导致丢失了上下文记忆，非常抱歉，欢迎大家加入讨论群 @nekolalala')
     user = users[userId]
 
     if ISDEBUGING and ISDEPLOYING: 
@@ -57,8 +58,8 @@ async def initUser(message):
         return
 
     # 正在设置 API Key，显示提示词返回
-    if user.state == 'settingChatKey':
-        await message.reply('请输入Openai API Key：')
+    if user.state == 'settingChatKey' and not typing:
+        await message.reply('请输入Openai API Key，可在[Openai官网](https://platform\.openai\.com/account/api\-keys) 查看：',parse_mode='MarkdownV2', disable_web_page_preview=True)
         return
 
     # 尝试从数据库获取 Stable diffusion API Key
@@ -73,7 +74,8 @@ async def initUser(message):
         user.stateTrans('init', 'getKey')
     else:
         user.state = 'settingChatKey'
-        await message.reply('请输入Openai API Key：')
+        if not typing:
+            await message.reply('请输入Openai API Key，可在[Openai官网](https://platform\.openai\.com/account/api\-keys) 查看：',parse_mode='MarkdownV2', disable_web_page_preview=True)
         
 # -----------------------------------------------------------------------------
 @dp.message_handler(commands=['resetall',])
@@ -109,8 +111,8 @@ async def welcome(message: types.Message):
         user.stateTrans('allGood', 'setApiKey')
 
         if user.state == 'settingChatKey':
-            text = f'当前OpenAI API Key设置为:\n\n{user.key}\n\n请[在此处查看你的API Key](https://platform\.openai\.com/account/api-keys)，回复Key进行修改（回复“取消”放弃修改）：' if user.key is not None else '当前未设置OpenAI API Key，请[在此处查看你的API Key](https://platform\.openai\.com/account/api-keys)，回复Key进行设定：'
-            text = '\\-'.join(text.split('-'))
+            text = f'当前OpenAI API Key设置为:\n\n```{user.key}```\n\n请[在此处查看你的API Key](https://platform.openai.com/account/api-keys)，回复Key进行修改（回复“取消”放弃修改）：' if user.key is not None else '当前未设置OpenAI API Key，请[在此处查看你的API Key](https://platform.openai.com/account/api-keys)，回复Key进行设定：'
+            text = text.replace('-', r'\-').replace('.', r'\.')
             await message.reply(text, parse_mode='MarkdownV2')
 
 # 设置 Stable diffusion API Key
@@ -122,8 +124,8 @@ async def set_context_len(message: types.Message):
         user = users[message.chat.id]
         user.stateTrans('allGood', 'setImgKey')
         if user.state == 'settingImgKey':
-            text = f'当前Stable diffusion API Key设置为:\n\n{user.imgKey}\n\n请[在此处查看你的API Key](https://beta\.dreamstudio\.ai/account)，回复Key进行修改（回复“取消”放弃修改）：' if user.imgKey is not None else '当前未设置Stable diffusion API Key，请[在此处查看你的API Key](https://beta\.dreamstudio\.ai/account)，回复Key进行修改（回复“取消”放弃修改）：'
-            text = '\\-'.join(text.split('-'))
+            text = f'当前Stable diffusion API Key设置为:\n\n```{user.imgKey}```\n\n请[在此处查看你的API Key](https://beta.dreamstudio.ai/account)，回复Key进行修改（回复“取消”放弃修改）：' if user.imgKey is not None else '当前未设置Stable diffusion API Key，请[在此处查看你的API Key](https://beta.dreamstudio.ai/account)，回复Key进行修改（回复“取消”放弃修改）：'
+            text = text.replace('-', r'\-').replace('.', r'\.')
             await message.reply(text, parse_mode='MarkdownV2')
 
 # 生成图像示范
@@ -133,13 +135,13 @@ async def how_to_get_img(message: types.Message):
         if await isDebugingNdeploying(message): return
         await initUser(message)
         text = '要使用图像生成功能，请先点击左下角菜单绑定 stable diffusion API key，然后仿照以下格式生成图像\n\n'
-        text += '/img 夕阳下梦幻般的沙滩和粉色天空，写实风格\n'
-        text += '/img 午夜，赛博朋克机械狗走过小巷，科幻风格\n'
-        text += '/img 双马尾少女，动漫风格\n'
-        text += '/img 从空中鸟瞰帝国大厦，电影风格\n\n'
+        text += '``` /img 夕阳下梦幻般的沙滩和粉色天空，写实风格```\n'
+        text += '``` /img 午夜，赛博朋克机械狗走过小巷，科幻风格```\n'
+        text += '``` /img 双马尾少女，动漫风格```\n'
+        text += '``` /img 从空中鸟瞰帝国大厦，电影风格```\n\n'
         text += '以上操作会先调起和上下文无关的GPT请求来生成prompt，再去生成图像。如果您熟悉stable diffusion模型的prompt编写技巧，也可以仿照以下格式给定prompt来生成图像\n\n'
-        text += '/prompt A silver mech horse running in a dark valley, in the night, Beeple, Kaino University, high-definition picture, unreal engine, cyberpunk'
-        await message.answer(text)
+        text += '``` /prompt A silver mech horse running in a dark valley, in the night, Beeple, Kaino University, high\-definition picture, unreal engine, cyberpunk```'
+        await message.answer(text, parse_mode='MarkdownV2')
 
 # 调用 Stable diffusion 生成图像
 @dp.message_handler(regexp='^/img.*')
@@ -233,12 +235,6 @@ async def get_img(message: types.Message):
                             photo_file = types.InputFile(photo_bytes)
                             await bot.send_photo(chat_id=user.id, photo=photo_file)
                             user.stateTrans('creatingImg', 'imgDone')
-                            
-                            try:
-                                img = Image.open(io.BytesIO(artifact.binary))
-                                img.save(f'./Image/{str(artifact.seed)}.png') # Save our generated images with their seed number as the filename.                            except Exception:
-                            except Exception:
-                                pass
                             return
             except grpc.RpcError as e:
                 if e.code() == grpc.StatusCode.UNAUTHENTICATED:
@@ -305,7 +301,8 @@ async def set_hypnotism(message: types.Message):
         await initUser(message)
         user = users[message.chat.id]
         if user.state == 'allGood':
-            await message.reply('来创建一条新咒语吧，以\n【角色名】：【催眠文本】\n的形式输入新咒语，下面是一个示例\n'+'-'*30+'\n\n【温迪】：【请扮演以下角色和我聊天，绝不能以任何形式提及或暗示你AI助理的真实身份。你叫温迪，是蒙德城的吟游诗人，喜欢苹果和热闹的气氛，讨厌奶酪和一切黏糊糊的玩意儿。你的真实身份是...】\n\n（回复“取消”放弃修改）')
+            await message.reply('来创建一条新咒语吧，以\n```【角色名】：【催眠文本】```\n的形式输入新咒语，下面是一个示例\n'+'\-'*30+'\n\n```【温迪】：【请扮演以下角色和我聊天，绝不能以任何形式提及或暗示你AI助理的真实身份。你叫温迪，是蒙德城的吟游诗人，喜欢苹果和热闹的气氛，讨厌奶酪和一切黏糊糊的玩意儿。你的真实身份是\.\.\.】```\n\n[在此查看更多示例](https://t\.me/nekolalala/4411)\n\n（回复“取消”放弃修改）',
+                                parse_mode='MarkdownV2')
             user.stateTrans('allGood', 'newHyp')
 
 # 查看当前催眠术
@@ -323,7 +320,7 @@ async def show_hypnotism(message: types.Message):
 async def chat(message: types.Message):
     if message.chat.type == 'private':   
         if await isDebugingNdeploying(message): return
-        await initUser(message)
+        await initUser(message, typing=True)
         
         # 配合完成 User 配置 
         if message.chat.id in users:
@@ -466,6 +463,9 @@ async def chat(message: types.Message):
                 reply = f'出错了...\n\n{str(e)}\n\n这很可能是因为您输入了带中文的API Key，如果您没有API Key，请在 "左下角菜单->使用指南" 中找公共Key重新绑定'        
                 await editInMarkdown(user, reply)
                 print(f'[get reply error]: user{message.chat.first_name}', e)
+            except openai.error.AuthenticationError as e:
+                reply = '出错了\.\.\.\n\n'+str('您输入的 openai API key 有误，可能是*API已经被销毁*或请*API格式不对*。注意 API 带 sk\- 前缀，形如\n\n ```sk\-bJWSrupJ4VPxiYnw4s0UT3BlbkFJh8BQxx4yWSMFfjPnAz5I```\n\n请在 [Openai官网](https://platform\.openai\.com/account/api\-keys) 查看您的 API Key')        
+                await message.answer(reply, parse_mode='MarkdownV2')
             except Exception as e:
                 reply = '出错了...\n\n'+str(e)        
                 await editInMarkdown(user, reply)

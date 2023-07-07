@@ -28,7 +28,6 @@ class User():
         self.currentReplyMsg = None
         self.currentEdittingChar = None
 
-        self.log = f'./ChatLog/{self.name}_{self.id}.txt'
         self.stateMachine = Machine(model=self, states=states, transitions=transitions, initial='init')
 
     def stateTrans(self, source:str, trigger:str):
@@ -55,7 +54,7 @@ class User():
             # 如果 text 为空，是在重新生成之前的回答
             if text != '':
                 if self.system != self.hypnotism['GPT3.5']:
-                    text += '，扮演指定角色回答，且不要说你在扮演。'  # 当前用户发言预处理
+                    text += '，扮演指定角色回答。'  # 当前用户发言预处理
                 users.insert(0, text)
 
             # 组合上下文

@@ -48,8 +48,8 @@ ABOUT = '''*这是一个基于 GPT3\.5 API 开发的聊天机器人*，您可以
 '''
 
 #IMGPROMPT = "Here is a MidJourney Prompt Formula: (image we're prompting). (5 descriptive keywords). (camera type). (camera lens type). (time of day).(style of photograph). (type of film)"
-IMGPROMPT = "Here is a prompt example for 一个童话般的宁静小镇，鸟瞰视角，动漫风格 is “a painting of a fairy tale town, serene landscape, a bird's eye view, anime style, Highly detailed, Vivid Colors.” "
-IMGPROMPT += "Here is another prompt example for 双马尾动漫少女，蓝黑色头发，颜色鲜艳 is “a painting of 1girl, blue | black hair, low twintails, anime style, with bright colors, Highly detailed.” "
-IMGPROMPT += "Here is another prompt example for 拟人化的兔子肖像，油画，史诗电影风格 is “a oil portrait of the bunny, Octane rendering, anthropomorphic creature, reddit moderator, epic, cinematic, elegant, highly detailed, featured on artstation.” "
-IMGPROMPT += "Here is another prompt example for 黄昏下，大雨中，两个持刀的海盗在海盗船上决斗 is “Two knife-wielding pirates dueling on a pirate ship, dusk, heavy rain, unreal engine, 8k, high-definition, by Alphonse Mucha and Wayne Barlowe.” "
+IMGPROMPT = "A prompt example for 一个童话般的宁静小镇，鸟瞰视角，动漫风格 is “a painting of a fairy tale town, serene landscape, a bird's eye view, anime style, Highly detailed, Vivid Colors.” "
+IMGPROMPT += "Another prompt example for 双马尾动漫少女，蓝黑色头发，颜色鲜艳 is “a painting of 1girl, blue | black hair, low twintails, anime style, with bright colors, Highly detailed.” "
+IMGPROMPT += "Another prompt example for 拟人化的兔子肖像，油画，史诗电影风格 is “a oil portrait of the bunny, Octane rendering, anthropomorphic creature, reddit moderator, epic, cinematic, elegant, highly detailed, featured on artstation.” "
+IMGPROMPT += "Another prompt example for 黄昏下，大雨中，两个持刀的海盗在海盗船上决斗 is “Two knife-wielding pirates dueling on a pirate ship, dusk, heavy rain, unreal engine, 8k, high-definition, by Alphonse Mucha and Wayne Barlowe.” "
 IMGPROMPT += "Now write a prompts for "
