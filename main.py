@@ -7,9 +7,8 @@ from Data import getDatabaseReady, getUserKey, getUserImgKey, updateUserKey, upd
 from dotenv import load_dotenv, find_dotenv
 from Utils import editInMarkdown
 import os
-import datetime
 import pymysql
-from MagicBook import ABOUT, IMGPROMPT
+from MagicBook import ABOUT, IMGPROMPT, HOW_TO_GET_IMG, NEW_HYPNOTISM
 from Utils import gen_img
 import multiprocessing
 import time
@@ -18,6 +17,8 @@ import grpc
 import stability_sdk.interfaces.gooseai.generation.generation_pb2 as generation
 import io
 import openai
+import warnings
+from PIL import Image
 
 load_dotenv(find_dotenv('.env'), override=True)
 
@@ -69,7 +70,7 @@ async def initUser(message, typing=False):
     # 尝试从数据库获取 API Key
     key = getUserKey(cursor, connection, userId)
     if key is not None:
-        user.key = key
+        user.setOpenAIKey(key)
         user.stateTrans('init', 'getKey')
     else:
         user.state = 'settingChatKey'
@@ -98,34 +99,41 @@ async def welcome(message: types.Message):
 
 # 设置OpenAI API Key
 @dp.message_handler(commands=['setapikey', ])
-async def welcome(message: types.Message):
+async def set_openai_key(message: types.Message):
     if message.chat.type == 'private':
         if await isDebugingNdeploying(message): return
         userId = message.chat.id 
         if userId not in users:
             print(f'新用户【{message.chat.first_name}】发起连接')
             users[userId] = User(name=message.chat.first_name, id=userId, cursor=cursor, connection=connection)
-            users[userId].key = getUserKey(cursor, connection, userId)   
+            users[userId].setOpenAIKey(getUserKey(cursor, connection, userId))
         user = users[userId]
         user.stateTrans('allGood', 'setApiKey')
 
         if user.state == 'settingChatKey':
-            text = f'当前OpenAI API Key设置为:\n\n```{user.key}```\n\n请[在此处查看你的API Key](https://platform.openai.com/account/api-keys)，回复Key进行修改（回复“取消”放弃修改）：' if user.key is not None else '当前未设置OpenAI API Key，请[在此处查看你的API Key](https://platform.openai.com/account/api-keys)，回复Key进行设定：'
-            text = text.replace('-', r'\-').replace('.', r'\.')
-            await message.reply(text, parse_mode='MarkdownV2')
+            text = f'当前OpenAI API Key设置为:\n\n`{user.key}`\n\n请[在此处查看你的API Key](https://platform.openai.com/account/api-keys)，回复Key进行修改' if user.key is not None else '当前未设置OpenAI API Key，请[在此处查看你的API Key](https://platform.openai.com/account/api-keys)，回复Key进行设定：'
+            text = text.replace('-', r'\-').replace('.', r'\.')            
+            await message.answer(
+                text, parse_mode='MarkdownV2', 
+                reply_markup=user.getCancelBorad()
+            )
+
 
 # 设置 Stable diffusion API Key
 @dp.message_handler(commands=['setimgkey', ])
-async def set_context_len(message: types.Message):
+async def set_img_key(message: types.Message):
     if message.chat.type == 'private':
         if await isDebugingNdeploying(message): return
         await initUser(message)
         user = users[message.chat.id]
         user.stateTrans('allGood', 'setImgKey')
         if user.state == 'settingImgKey':
-            text = f'当前Stable diffusion API Key设置为:\n\n```{user.imgKey}```\n\n请[在此处查看你的API Key](https://beta.dreamstudio.ai/account)，回复Key进行修改（回复“取消”放弃修改）：' if user.imgKey is not None else '当前未设置Stable diffusion API Key，请[在此处查看你的API Key](https://beta.dreamstudio.ai/account)，回复Key进行修改（回复“取消”放弃修改）：'
+            text = f'当前Stable diffusion API Key设置为:\n\n`{user.imgKey}`\n\n请[在此处查看你的API Key](https://beta.dreamstudio.ai/account)，回复Key进行修改' if user.imgKey is not None else '当前未设置Stable diffusion API Key，请[在此处查看你的API Key](https://beta.dreamstudio.ai/account)，回复Key进行修改：'
             text = text.replace('-', r'\-').replace('.', r'\.')
-            await message.reply(text, parse_mode='MarkdownV2')
+            await message.answer(
+                text, parse_mode='MarkdownV2', 
+                reply_markup=user.getCancelBorad()
+            )
 
 # 生成图像示范
 @dp.message_handler(commands=['howtogetimg', ])
@@ -133,14 +141,7 @@ async def how_to_get_img(message: types.Message):
     if message.chat.type == 'private':
         if await isDebugingNdeploying(message): return
         await initUser(message)
-        text = '要使用图像生成功能，请先点击左下角菜单绑定 stable diffusion API key，然后仿照以下格式生成图像\n\n'
-        text += '``` /img 夕阳下梦幻般的沙滩和粉色天空，写实风格```\n'
-        text += '``` /img 午夜，赛博朋克机械狗走过小巷，科幻风格```\n'
-        text += '``` /img 双马尾少女，动漫风格```\n'
-        text += '``` /img 从空中鸟瞰帝国大厦，电影风格```\n\n'
-        text += '以上操作会先调起和上下文无关的GPT请求来生成prompt，再去生成图像。如果您熟悉stable diffusion模型的prompt编写技巧，也可以仿照以下格式给定prompt来生成图像\n\n'
-        text += '``` /prompt A silver mech horse running in a dark valley, in the night, Beeple, Kaino University, high\-definition picture, unreal engine, cyberpunk```'
-        await message.answer(text, parse_mode='MarkdownV2')
+        await message.answer(HOW_TO_GET_IMG, parse_mode='MarkdownV2')
 
 # 调用 Stable diffusion 生成图像
 @dp.message_handler(regexp='^/img.*')
@@ -174,10 +175,11 @@ async def get_img(message: types.Message):
             print(reply)
             try:
                 for resp in answers:
-                    if len(resp.artifacts) != 0:
-                        artifact = resp.artifacts[0]
+                    for artifact in resp.artifacts:
                         if artifact.finish_reason == generation.FILTER:
-                            raise ValueError("Your request activated the API's safety filters and could not be processed. Please modify the prompt and try again.")
+                            warnings.warn(
+                                "Your request activated the API's safety filters and could not be processed."
+                                "Please modify the prompt and try again.")
                         if artifact.type == generation.ARTIFACT_IMAGE:
                             photo_bytes = io.BytesIO(artifact.binary)
                             photo_file = types.InputFile(photo_bytes)
@@ -225,10 +227,11 @@ async def get_img(message: types.Message):
             
             try:
                 for resp in answers:
-                    if len(resp.artifacts) != 0:
-                        artifact = resp.artifacts[0]
+                    for artifact in resp.artifacts:
                         if artifact.finish_reason == generation.FILTER:
-                            raise ValueError("Your request activated the API's safety filters and could not be processed. Please modify the prompt and try again.")
+                            warnings.warn(
+                                "Your request activated the API's safety filters and could not be processed."
+                                "Please modify the prompt and try again.")
                         if artifact.type == generation.ARTIFACT_IMAGE:
                             photo_bytes = io.BytesIO(artifact.binary)
                             photo_file = types.InputFile(photo_bytes)
@@ -266,10 +269,11 @@ async def set_model(message: types.Message):
         await initUser(message)
         user = users[message.chat.id]
         if user.state == 'allGood':
-            inlineKeyboard = user.getModelKeyBorad()
-            await message.reply('选择对话使用的模型，注意只有*绑定支付方式且有过支付历史*的账户才能使用GPT4，可以在[这里](https://platform\.openai\.com/account/billing/history)查看您的账户是否有支付历史', 
-                                reply_markup=inlineKeyboard,
-                                parse_mode='MarkdownV2')
+            await message.reply(
+                '选择对话使用的模型，注意只有*绑定支付方式且有过支付历史*的账户才能使用GPT4，可以在[这里](https://platform\.openai\.com/account/billing/history)查看您的账户是否有支付历史', 
+                reply_markup=user.getModelKeyBorad(),
+                parse_mode='MarkdownV2'
+            )
 
 # 选用催眠术
 @dp.message_handler(commands=['sethypnotism', ])
@@ -279,8 +283,10 @@ async def set_hypnotism(message: types.Message):
         await initUser(message)
         user = users[message.chat.id]
         if user.state == 'allGood':
-            inlineKeyboard = user.getHypnotismKeyBorad(usage='select_hyp')
-            await message.reply('从《魔导绪论》中选择一条咒语来催眠 GPT 模型吧:', reply_markup=inlineKeyboard)
+            await message.reply(
+                '从《魔导绪论》中选择一条咒语来催眠 GPT 模型吧:', 
+                reply_markup=user.getHypnotismKeyBorad(usage='select_hyp')
+            )
 
 # 编辑催眠术
 @dp.message_handler(commands=['edithypnotism', ])
@@ -290,8 +296,10 @@ async def set_hypnotism(message: types.Message):
         await initUser(message)
         user = users[message.chat.id]
         if user.state == 'allGood':
-            inlineKeyboard = user.getHypnotismKeyBorad(usage='edit_hyp')
-            await message.reply('从《魔导绪论》中选择要编辑的咒语:', reply_markup=inlineKeyboard)
+            await message.reply(
+                '从《魔导绪论》中选择要编辑的咒语:', 
+                reply_markup=user.getHypnotismKeyBorad(usage='edit_hyp')
+            )
             user.stateTrans('allGood', 'editHyp')
 
 # 删除催眠术
@@ -302,8 +310,11 @@ async def commands(message: types.Message):
         await initUser(message)
         user = users[message.chat.id]
         if user.state == 'allGood':
-            inlineKeyboard = user.getHypnotismKeyBorad(usage='delete_hyp')
-            await message.reply('从《魔导绪论》中删除无用的咒语吧，注意这是无法撤销的哦:', reply_markup=inlineKeyboard)
+            await message.reply(
+                '从《魔导绪论》中删除无用的咒语吧，注意这是无法撤销的哦:', 
+                reply_markup=user.getHypnotismKeyBorad(usage='delete_hyp')
+            )
+            user.stateTrans('allGood', 'delHyp')
 
 # 创建新催眠术
 @dp.message_handler(commands=['newhypnotism', ])
@@ -313,8 +324,10 @@ async def set_hypnotism(message: types.Message):
         await initUser(message)
         user = users[message.chat.id]
         if user.state == 'allGood':
-            await message.reply('来创建一条新咒语吧，以\n```【角色名】：【催眠文本】```\n的形式输入新咒语，下面是一个示例\n'+'\-'*30+'\n\n```【温迪】：【请扮演以下角色和我聊天，绝不能以任何形式提及或暗示你AI助理的真实身份。你叫温迪，是蒙德城的吟游诗人，喜欢苹果和热闹的气氛，讨厌奶酪和一切黏糊糊的玩意儿。你的真实身份是\.\.\.】```\n\n[在此查看更多示例](https://t\.me/nekolalala/4411)\n\n（回复“取消”放弃修改）',
-                                parse_mode='MarkdownV2')
+            user.currentReplyMsg = await message.answer(
+                NEW_HYPNOTISM, parse_mode='MarkdownV2', 
+                reply_markup=user.getCancelBorad()
+            )
             user.stateTrans('allGood', 'newHyp')
 
 # 查看当前催眠术
@@ -327,7 +340,94 @@ async def show_hypnotism(message: types.Message):
         if user.state == 'allGood':
             await message.reply(f'当前GPT被催眠为【{user.character}】，使用的咒语如下\n'+'-'*35+'\n\n'+user.system)
 
-# 继续
+
+# ----------------------------------------------------------------------------------------
+async def dialogue(user:User, message:types.Message, text:str):
+    assert user.state == 'allGood'
+    try:
+        # 清除上一句回复的重新生成按钮
+        if user.currentReplyMsg is not None:
+            try:
+                await user.currentReplyMsg.edit_reply_markup(None)
+            except aiogram.exceptions.MessageNotModified:
+                pass
+            
+        # openai请求
+        user.currentReplyMsg = await message.answer(f'{user.character} 正在思考...')
+        response = user.getReply(text, True)
+
+        # 流式打印回复
+        reply, replys = '', []
+        for chunk in response:
+            repLen = len(reply)
+            content = chunk.choices[0].delta.content
+
+            # 回复太长则分段
+            if repLen > 4000:
+                # 完成上一段的回复
+                await editInMarkdown(user, reply)   
+                replys.append(reply)
+                # 新启一段
+                user.currentReplyMsg = await message.answer(content)
+                reply, repLen = content, len(reply)
+
+            # 每15个字符更新一次，如果每个字符都更新会很慢
+            if repLen != 0 and repLen % 15 == 0:
+                await editInMarkdown(user, reply)
+
+            if content is not None:
+                reply += content
+
+        # 完成最后一段回复，增加重新生成按钮
+        replys.append(reply)
+        await editInMarkdown(user, reply)
+        await user.currentReplyMsg.edit_reply_markup(user.getReGenKeyBorad())
+    
+        # 还原完整回复
+        full_reply = ''.join(replys)
+
+        # 更新上下文
+        if user.state != 'creatingImg':
+            user.history['assistant'].insert(0, full_reply)
+
+    except UnicodeEncodeError as e:
+        reply = f'出错了...\n\n{str(e)}\n\n这很可能是因为您输入了带中文的API Key，请点击左下角菜单重新设置'        
+        await editInMarkdown(user, reply)
+        print(f'[get reply error]: user{message.chat.first_name}', e)
+    except openai.AuthenticationError as e:
+        reply = '出错了\.\.\.\n\n'+str('您输入的 openai API key 有误，可能是*API已经被销毁*或请*API格式不对*。注意 API 带 sk\- 前缀，形如\n\n `sk\-bJWSrupJ4VPxiYnw4s0UT3BlbkFJh8BQxx4yWSMFfjPnAz5I`\n\n请在 [Openai官网](https://platform\.openai\.com/account/api\-keys) 查看您的 API Key')        
+        await message.answer(reply, parse_mode='MarkdownV2')
+    except Exception as e:
+        reply = '出错了...\n\n'+str(e)        
+        await editInMarkdown(user, reply)
+        print(f'[get reply error]: user{message.chat.first_name}', e)      
+
+# 获取voice消息
+@dp.message_handler(content_types=types.ContentType.VOICE)
+async def voice(message: types.Message):
+    if message.chat.type == 'private':   
+        if await isDebugingNdeploying(message): return
+        await initUser(message, typing=True)
+        user = users[message.chat.id]
+
+        # 仅在聊天时接受语音消息
+        if user.state != 'allGood':
+            return
+
+        # 获取用户发送的语音消息
+        user.currentReplyMsg = await message.reply(f'{user.character} 正在识别语音内容...')
+        voice = message.voice
+        voice_path = f'./audio/{user.id}_in{voice.file_id}.mp3'
+        await bot.download_file_by_id(voice.file_id, destination=voice_path)
+
+        # 转文本
+        text = user.voice2text(voice_path)
+        await editInMarkdown(user, f'识别为：{text}')
+        
+        # 进行聊天
+        await dialogue(user, message, text)     
+
+# 获取chat消息
 @dp.message_handler()
 async def chat(message: types.Message):
     if message.chat.type == 'private':   
@@ -337,40 +437,31 @@ async def chat(message: types.Message):
         # 配合完成 User 配置 
         if message.chat.id in users:
             user = users[message.chat.id]
+            text = message.text
 
             # 设置API key
             if user.state == 'settingChatKey':       
-                if message.text == '取消':
-                    await message.reply('未修改API Key')
-                    if user.key != None:
-                        user.stateTrans('settingChatKey', 'setApiKeyCancel')
-                else:
-                    user = users[message.chat.id]
-                    user.key = message.text
-                    updateUserKey(cursor, connection, user.id, user.key)
-                    await message.reply(f'Openai API Key设置为:\n\n{user.key}\n\n现在就开始聊天吧!')
-                    user.stateTrans('settingChatKey', 'setApiKeyDone')
+                user = users[message.chat.id]
+                user.setOpenAIKey(text)
+                updateUserKey(cursor, connection, user.id, user.key)
+                await message.reply(f'Openai API Key设置为:\n\n{user.key}\n\n现在就开始聊天吧!')
+                user.stateTrans('settingChatKey', 'setApiKeyDone')
                 return
 
             # 设置 Img API key
             elif user.state == 'settingImgKey':       
-                if message.text == '取消':
-                    await message.reply('未修改API Key')
-                    if user.imgKey != None:
-                        user.stateTrans('settingImgKey', 'setImgKeyCancel')
-                else:
-                    user = users[message.chat.id]
-                    user.imgKey = message.text
-                    updateUserImgKey(cursor, connection, user.id, user.imgKey)
-                    await message.reply(f'Stable Diffusion API Key设置为:\n\n{user.imgKey}\n\n请点击左下菜单或 /howtogetimg 查看生成图像的正确方式')
-                    user.stateTrans('settingImgKey', 'setImgKeyDone')
+                user = users[message.chat.id]
+                user.setSDKey(text)
+                updateUserImgKey(cursor, connection, user.id, user.imgKey)
+                await message.reply(f'Stable Diffusion API Key设置为:\n\n{user.imgKey}\n\n请点击左下菜单或 /howtogetimg 查看生成图像的正确方式')
+                user.stateTrans('settingImgKey', 'setImgKeyDone')
                 return
 
             # 设置上下文长度
             elif user.state == 'settingContextLen': 
                 lenContext = 5
                 try:
-                    lenContext = int(message.text)
+                    lenContext = int(text)
                 except Exception as e:
                     await message.reply(f'出错了...没有进行修改\n\n'+str(e))
                     user.stateTrans('settingContextLen', 'setConextLenCancel')
@@ -386,11 +477,6 @@ async def chat(message: types.Message):
 
             # 创建新咒语
             elif user.state == 'creatingNewHyp':
-                text = message.text
-                if message.text == '取消':
-                    await message.reply('已取消')
-                    user.stateTrans('creatingNewHyp', 'newHypCancel')
-                    return
                 try:
                     character = text[text.find('【')+1: text.find('】')]
                     hyp = text[text.find('【',1)+1: text.rfind('】')]
@@ -415,77 +501,47 @@ async def chat(message: types.Message):
             
             # 编辑咒语
             elif user.state == 'edittingHyp':
-                text = message.text
-                user.hypnotism[user.currentEdittingChar] = text
-                updateUserPrompts(cursor, connection, user.id, user.hypnotism)
-                await message.reply(f'咒语【{user.currentEdittingChar}】编辑完成！想要使用这条咒语的话，需要先在《魔导绪论》中点选催眠哦')
-                user.stateTrans('edittingHyp', 'editHypDone')
-                return       
+                if user.currentEdittingChar is None:
+                    # 没有点击选项而是直接发消息，认为用户放弃操作
+                    user.stateTrans('edittingHyp', 'editHypCancel')
+                else:
+                    user.hypnotism[user.currentEdittingChar] = text
+                    updateUserPrompts(cursor, connection, user.id, user.hypnotism)
+                    await message.reply(f'咒语【{user.currentEdittingChar}】编辑完成！想要使用这条咒语的话，需要先在《魔导绪论》中点选催眠哦')
+                    user.stateTrans('edittingHyp', 'editHypDone')              
+                    return    
+            
+            # 删除咒语
+            elif user.state == 'deletingHyp':
+                # 没有点击选项而是直接发消息，认为用户放弃操作
+                user.stateTrans('deletingHyp', 'delHypCancel')
 
         # 进行聊天
         user = users[message.chat.id]
         if user.state == 'allGood':
-            try:
-                # 清除上一句回复的重新生成按钮
-                if user.currentReplyMsg is not None:
-                    try:
-                        await user.currentReplyMsg.edit_reply_markup(None)
-                    except aiogram.exceptions.MessageNotModified:
-                        pass
-                    
-                # openai请求
-                user.currentReplyMsg = await message.answer(f'{user.character} 正在思考...')
-                response = user.getReply(message.text, True)
-
-                # 流式打印回复
-                reply, replys = '', []
-                for chunk in response:
-                    repLen = len(reply)
-                    content = chunk['choices'][0]['delta'].get('content', '')
-
-                    # 回复太长则分段
-                    if repLen > 4000:
-                        # 完成上一段的回复
-                        await editInMarkdown(user, reply)   
-                        replys.append(reply)
-                        # 新启一段
-                        user.currentReplyMsg = await message.answer(content)
-                        reply, repLen = content, len(reply)
-
-                    # 每15个字符更新一次，如果每个字符都更新会很慢
-                    if repLen != 0 and repLen % 15 == 0:
-                        await editInMarkdown(user, reply)
-
-                    reply += content
-    
-                # 完成最后一段回复，增加重新生成按钮
-                replys.append(reply)
-                inlineKeyboard = user.getReGenKeyBorad()
-                await editInMarkdown(user, reply)
-                await user.currentReplyMsg.edit_reply_markup(inlineKeyboard)
-            
-                # 还原完整回复
-                full_reply = ''.join(replys)
-
-                # 更新上下文
-                if user.state != 'creatingImg':
-                    user.history['assistant'].insert(0, full_reply)
-
-            except UnicodeEncodeError as e:
-                reply = f'出错了...\n\n{str(e)}\n\n这很可能是因为您输入了带中文的API Key，如果您没有API Key，请在 "左下角菜单->使用指南" 中找公共Key重新绑定'        
-                await editInMarkdown(user, reply)
-                print(f'[get reply error]: user{message.chat.first_name}', e)
-            except openai.error.AuthenticationError as e:
-                reply = '出错了\.\.\.\n\n'+str('您输入的 openai API key 有误，可能是*API已经被销毁*或请*API格式不对*。注意 API 带 sk\- 前缀，形如\n\n ```sk\-bJWSrupJ4VPxiYnw4s0UT3BlbkFJh8BQxx4yWSMFfjPnAz5I```\n\n请在 [Openai官网](https://platform\.openai\.com/account/api\-keys) 查看您的 API Key')        
-                await message.answer(reply, parse_mode='MarkdownV2')
-            except Exception as e:
-                reply = '出错了...\n\n'+str(e)        
-                await editInMarkdown(user, reply)
-                print(f'[get reply error]: user{message.chat.first_name}', e)            
-        else:
-            pass
+            await dialogue(user, message, message.text)      
 
 # -----------------------------------------------------------------------------
+# 取消当前操作
+@dp.callback_query_handler(lambda call: call.data == 'cancel')
+async def cancel(call: types.CallbackQuery, ):
+    user = users[call.message.chat.id]
+    if user.state != 'allGood':
+        await call.message.answer('已取消')
+
+    if user.state == 'settingChatKey':       
+        user.stateTrans('settingChatKey', 'setApiKeyCancel')
+    elif user.state == 'settingImgKey':                       
+        user.stateTrans('settingImgKey', 'setImgKeyCancel')
+    elif user.state == 'creatingNewHyp':
+        user.stateTrans('creatingNewHyp', 'newHypCancel')
+    elif user.state == 'edittingHyp':
+        user.stateTrans('edittingHyp', 'editHypCancel')
+    elif user.state == 'deletingHyp':
+        user.stateTrans('deletingHyp', 'delHypCancel')
+    else:
+        print(f"[check]: try to cancel at state '{user.state}'")
+    
 # 选用催眠术
 @dp.callback_query_handler(lambda call: call.data.startswith('set_model'))
 async def selectModel(call: types.CallbackQuery, ):
@@ -510,28 +566,37 @@ async def selectHypnotism(call: types.CallbackQuery, ):
 @dp.callback_query_handler(lambda call: call.data.startswith('delete_hyp'))
 async def deleteHypnotism(call: types.CallbackQuery, ):
     character = call.data[len('delete_hyp'):]
-    if character == '【取消修改】':
-        await call.message.answer('已取消，没有删除咒语')
-        return
     user = users[call.message.chat.id]
     hypDeleted = user.hypnotism[character]
     user.hypnotism.pop(character)
     updateUserPrompts(cursor, connection, user.id, user.hypnotism)
     user.clearHistory()
     await call.message.answer(f'已将咒语【{character}】删除，原文为如下\n'+'-'*35+'\n\n'+hypDeleted)
+    user.stateTrans('deletingHyp', 'delHypDone')
 
 # 编辑催眠术
 @dp.callback_query_handler(lambda call: call.data.startswith('edit_hyp'))
 async def editHypnotism(call: types.CallbackQuery, ):
     user = users[call.message.chat.id]
     character = call.data[len('edit_hyp'):]
-    if character == '【取消修改】':
-        await call.message.answer('已取消，没有编辑咒语')
-        user.stateTrans('edittingHyp', 'editHypCancel')
-        return
     hypEditting = user.hypnotism[character]
     user.currentEdittingChar = character
     await call.message.answer(f'请直接输入咒语【{character}】的新文本，当前咒语文本如下\n'+'-'*35+'\n\n'+hypEditting)
+
+# 生成语音回复
+@dp.callback_query_handler(lambda call: call.data.startswith('audio'))
+async def gen_audio(call: types.CallbackQuery, ):
+    user = users[call.message.chat.id]
+    message = call.message
+
+    notice = await message.answer(f'{user.character} 正在讲话...')
+    voice_path = user.text2voice(text=message.text, type=call.data)
+    try:
+        with open(voice_path, 'rb') as voice:
+            await bot.send_voice(user.id, voice)
+    except Exception as e:
+        print(f'[Check]: Gen Audio failed as {e}')
+    await notice.delete()
 
 # 重新生成回答
 @dp.callback_query_handler(lambda call: call.data == 'regenerate')
@@ -551,7 +616,7 @@ async def regenerate(call: types.CallbackQuery, ):
     reply, replys = '', []
     for chunk in response:
         repLen = len(reply)
-        content = chunk['choices'][0]['delta'].get('content', '')
+        content = chunk.choices[0].delta.content
 
         # 回复太长则分段
         if repLen > 4000:
@@ -567,13 +632,13 @@ async def regenerate(call: types.CallbackQuery, ):
             await editInMarkdown(user, reply)
 
         # 拼接当前回复
-        reply += content
+        if content is not None:
+            reply += content
 
     # 打印最后一段回复，增加重新生成按钮
     replys.append(reply)
-    inlineKeyboard = user.getReGenKeyBorad()
     await editInMarkdown(user, reply)
-    await user.currentReplyMsg.edit_reply_markup(inlineKeyboard)
+    await user.currentReplyMsg.edit_reply_markup(user.getReGenKeyBorad())
 
     # 还原完整回复
     full_reply = ''.join(replys)
@@ -583,18 +648,20 @@ async def regenerate(call: types.CallbackQuery, ):
 
 # -----------------------------------------------------------------------------
 async def start():
-    await bot.set_my_commands([BotCommand('sethypnotism','魔导绪论'),
-                            BotCommand('showhypnotism','查看当前咒语'),
-                            BotCommand('newhypnotism','创建新咒语'),
-                            BotCommand('edithypnotism','编辑咒语'),
-                            BotCommand('deletehypnotism','删除咒语'),
-                            BotCommand('setmodel','选择模型'),
-                            BotCommand('setcontextlen','设置上下文长度'),
-                            BotCommand('setapikey','设置OpenAI Key'),
-                            BotCommand('setimgkey','设置Stable diffusion Key'),
-                            BotCommand('howtogetimg','生成图像示范'),
-                            BotCommand('about','使用指南'),
-                            BotCommand('resetall','遇到严重错误时点此重置机器人')])
+    await bot.set_my_commands([
+        BotCommand('sethypnotism','魔导绪论'),
+        BotCommand('showhypnotism','查看当前咒语'),
+        BotCommand('newhypnotism','创建新咒语'),
+        BotCommand('edithypnotism','编辑咒语'),
+        BotCommand('deletehypnotism','删除咒语'),
+        BotCommand('setmodel','选择模型'),
+        BotCommand('setcontextlen','设置上下文长度'),
+        BotCommand('setapikey','设置OpenAI Key'),
+        BotCommand('setimgkey','设置Stable diffusion Key'),
+        BotCommand('howtogetimg','生成图像示范'),
+        BotCommand('about','使用指南'),
+        BotCommand('resetall','遇到严重错误时点此重置机器人')
+    ])
 
 def botActivate():
     print('bot启动中; pid = {}'.format(os.getpid()))
@@ -606,9 +673,7 @@ def botActivate():
     loop.run_until_complete(executor.start_polling(dp))
 
 def connectionGuard(process):
-    '''
-    主进程守护线程在此检查bot进程是否死亡，并自动重启
-    '''
+    ''' 主进程守护线程在此检查bot进程是否死亡，并自动重启 '''
     while True:
         if not process.is_alive():
             process = multiprocessing.Process(target=botActivate) 

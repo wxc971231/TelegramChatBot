@@ -1,8 +1,9 @@
-import openai
+from openai import OpenAI
 from transitions import Machine
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from Data import initUser, getUserPrompts, updateUserPrompts
 from Utils import transitions, states
+from datetime import datetime
 
 USER_STATUS_INIT = 0
 USER_STATUS_SETTINGKEY = 1
@@ -22,6 +23,7 @@ class User():
         self.cursor = cursor
         self.connection = connection
 
+        self.client = None if key is None else OpenAI(api_key=key)
         self.hypnotism = initUser(cursor, connection, id)
         self.model = MODEL_GPT35
         self.character = 'GPT'
@@ -39,7 +41,9 @@ class User():
             getattr(self, trigger)()
 
     def setOpenAIKey(self, key):
+        assert key is not None
         self.key = key
+        self.client = OpenAI(api_key=key)
     
     def setSDKey(self, key):
         self.imgKey = key
@@ -75,11 +79,30 @@ class User():
 
         return message
     
+    def voice2text(self, voice_path:str):
+        with open(voice_path, "rb") as audio_file:
+            transcript = self.client.audio.transcriptions.create(
+                model="whisper-1", 
+                file=audio_file, 
+                response_format="text"
+            )
+        return transcript
+
+    def text2voice(self, text:str, type:str):
+        audio_path = f'./audio/{self.id}_{datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]}.ogg'
+        response = self.client.audio.speech.create(
+            model="tts-1",
+            voice="nova" if type.endswith('female') else 'alloy',
+            input=text,
+            response_format='opus'
+        )
+        response.stream_to_file(audio_path)
+        return audio_path
+
     def getReply(self, text, useStreamMode=False):
         messages = self.createMessage(text)
-        response = openai.ChatCompletion.create(
+        response = self.client.chat.completions.create(
             model=self.model,
-            api_key=self.key,
             messages=messages,
             stream=useStreamMode
         )
@@ -91,7 +114,7 @@ class User():
     def getHypnotismKeyBorad(self, usage):
         inlineKeyboard = InlineKeyboardMarkup()
         if usage in ['delete_hyp', 'edit_hyp']:
-            inlineButton = InlineKeyboardButton(text='【取消修改】', callback_data=usage+'【取消修改】')     
+            inlineButton = InlineKeyboardButton(text='【取消修改】', callback_data='cancel')     
             inlineKeyboard.add(inlineButton)
 
         self.hypnotism = getUserPrompts(self.cursor, self.connection, self.id)
@@ -105,11 +128,21 @@ class User():
 
         return inlineKeyboard
 
-    def getReGenKeyBorad(self):
+    def getCancelBorad(self):
         inlineKeyboard = InlineKeyboardMarkup()
-        inlineButton = InlineKeyboardButton(text='【重新生成这句回答】', callback_data='regenerate')     
+        inlineButton = InlineKeyboardButton(text='【取消】', callback_data='cancel')     
         inlineKeyboard.add(inlineButton)
         return inlineKeyboard
+
+    def getReGenKeyBorad(self):
+        inlineKeyboard = InlineKeyboardMarkup(row_width=2)
+        inlineButton_audio_female = InlineKeyboardButton(text='【生成音频 (女)】', callback_data='audio_female')
+        inlineButton_audio_male = InlineKeyboardButton(text='【生成音频 (男)】', callback_data='audio_male')
+        inlineKeyboard.row(inlineButton_audio_female, inlineButton_audio_male)
+        inlineButton_regen = InlineKeyboardButton(text='【重新回答】', callback_data='regenerate')
+        inlineKeyboard.add(inlineButton_regen)
+        return inlineKeyboard
+
 
     def getModelKeyBorad(self):
         inlineKeyboard = InlineKeyboardMarkup()

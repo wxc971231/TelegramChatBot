@@ -45,6 +45,19 @@ ABOUT = '''*这是一个基于 OpenAI GPT API 开发的聊天机器人*，您可
 ||程序有*极小*概率发生崩溃，虽然会自动重启以维持服务，但这会导致模型丧失上下文记忆，另外模型维护也会导致失忆（咒语都不会丢失），如果您遇到这些问题，非常抱歉！！||
 '''
 
+HOW_TO_GET_IMG = '要使用图像生成功能，请先点击左下角菜单绑定 stable diffusion API key，然后仿照以下格式生成图像\n\n'
+HOW_TO_GET_IMG += '` /img 夕阳下梦幻般的沙滩和粉色天空，写实风格`\n'
+HOW_TO_GET_IMG += '` /img 午夜，赛博朋克机械狗走过小巷，科幻风格`\n'
+HOW_TO_GET_IMG += '` /img 双马尾少女，动漫风格`\n'
+HOW_TO_GET_IMG += '` /img 从空中鸟瞰帝国大厦，电影风格`\n\n'
+HOW_TO_GET_IMG += '以上操作会先调起和上下文无关的GPT请求来生成prompt，再去生成图像。如果您熟悉stable diffusion模型的prompt编写技巧，也可以仿照以下格式给定prompt来生成图像\n\n'
+HOW_TO_GET_IMG += '` /prompt A silver mech horse running in a dark valley, in the night, Beeple, Kaino University, high\-definition picture, unreal engine, cyberpunk`'
+
+NEW_HYPNOTISM = '来创建一条新咒语吧，以\n`【角色名】：【催眠文本】`\n的形式输入新咒语，下面是一个示例\n'
+NEW_HYPNOTISM += '\-'*30 + '\n\n'
+NEW_HYPNOTISM += '`【温迪】：【请扮演以下角色和我聊天，绝不能以任何形式提及或暗示你AI助理的真实身份。你叫温迪，是蒙德城的吟游诗人，喜欢苹果和热闹的气氛，讨厌奶酪和一切黏糊糊的玩意儿。你的真实身份是\.\.\.】`\n\n'
+NEW_HYPNOTISM += '[在此查看更多示例](https://t\.me/nekolalala/4411)'
+
 #IMGPROMPT = "Here is a MidJourney Prompt Formula: (image we're prompting). (5 descriptive keywords). (camera type). (camera lens type). (time of day).(style of photograph). (type of film)"
 IMGPROMPT = "A prompt example for 一个童话般的宁静小镇，鸟瞰视角，动漫风格 is “a painting of a fairy tale town, serene landscape, a bird's eye view, anime style, Highly detailed, Vivid Colors.” "
 IMGPROMPT += "Another prompt example for 双马尾动漫少女，蓝黑色头发，颜色鲜艳 is “a painting of 1girl, blue | black hair, low twintails, anime style, with bright colors, Highly detailed.” "
