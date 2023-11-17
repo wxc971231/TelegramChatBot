@@ -29,6 +29,10 @@ ISDEPLOYING = True
 connection = pymysql.connect(host='localhost', user='root', database='chatbot', password='wxc971231')
 cursor = connection.cursor()
 
+# proxy setting for openai API
+os.environ['http_proxy'] = '127.0.0.1:15732'
+os.environ['https_proxy'] = '127.0.0.1:15732'
+
 # bot dispatcher and user object
 BOT_TOKEN = os.environ['TEST_BOT_TOKEN']
 bot = Bot(token=BOT_TOKEN, proxy='http://127.0.0.1:15732') if ISDEPLOYING else Bot(token=BOT_TOKEN, proxy='http://127.0.0.1:15732') 

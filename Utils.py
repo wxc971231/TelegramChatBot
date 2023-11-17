@@ -7,16 +7,8 @@ import aiogram
 states=[
     'init', 
     'allGood', 
-        'allGood', 
-    'allGood', 
-    'settingChatKey', 
-        'settingChatKey', 
     'settingChatKey', 
     'settingImgKey', 
-        'settingImgKey', 
-    'settingImgKey', 
-    'settingContextLen', 
-        'settingContextLen', 
     'settingContextLen', 
     'creatingNewHyp',
     'edittingHyp',
@@ -49,7 +41,8 @@ transitions = [
     {'trigger': 'editHypDone',          'source': 'edittingHyp',        'dest': 'allGood'},
     {'trigger': 'delHypCancel',         'source': 'deletingHyp',        'dest': 'allGood'},
     {'trigger': 'delHypDone',           'source': 'deletingHyp',        'dest': 'allGood'},
-    {'trigger': 'reset',                'source': 'allGood',            'dest': 'init'}]
+    {'trigger': 'reset',                'source': 'allGood',            'dest': 'init'}
+]
 
 
 os.environ['STABILITY_HOST'] = 'grpc.stability.ai:443'
