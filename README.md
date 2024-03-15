@@ -38,8 +38,9 @@
    ```shell
    pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
    ```
+4. Install [ffmpeg](https://ffmpeg.org/download.html)
 
-4. Install MySQL 5.7
+5. Install [MySQL 5.7](https://www.mysql.com/)
 
 
 

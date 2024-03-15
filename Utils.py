@@ -1,7 +1,11 @@
 import os
+import io
+from PIL import Image
 from stability_sdk import client
 import stability_sdk.interfaces.gooseai.generation.generation_pb2 as generation
 import aiogram
+from aiogram import types
+import warnings
 
 # 状态定义
 states=[
@@ -9,6 +13,7 @@ states=[
     'allGood', 
     'settingChatKey', 
     'settingImgKey', 
+    'settingVoiceToken',
     'settingContextLen', 
     'creatingNewHyp',
     'edittingHyp',
@@ -22,6 +27,7 @@ transitions = [
     {'trigger': 'setApiKey',            'source': 'allGood',            'dest': 'settingChatKey'},
     {'trigger': 'setApiKey',            'source': 'init',               'dest': 'settingChatKey'},
     {'trigger': 'setImgKey',            'source': 'allGood',            'dest': 'settingImgKey'},
+    {'trigger': 'setVoiceToken',        'source': 'allGood',            'dest': 'settingVoiceToken'},
     {'trigger': 'setConextLen',         'source': 'allGood',            'dest': 'settingContextLen'},
     {'trigger': 'newHyp',               'source': 'allGood',            'dest': 'creatingNewHyp'},
     {'trigger': 'editHyp',              'source': 'allGood',            'dest': 'edittingHyp'},
@@ -33,6 +39,8 @@ transitions = [
     {'trigger': 'setApiKeyDone',        'source': 'settingChatKey',     'dest': 'allGood'},
     {'trigger': 'setImgKeyCancel',      'source': 'settingImgKey',      'dest': 'allGood'},
     {'trigger': 'setImgKeyDone',        'source': 'settingImgKey',      'dest': 'allGood'},
+    {'trigger': 'setVoiceTokenCancel',  'source': 'settingVoiceToken',  'dest': 'allGood'},
+    {'trigger': 'setVoiceTokenDone',    'source': 'settingVoiceToken',  'dest': 'allGood'},
     {'trigger': 'setConextLenCancel',   'source': 'settingContextLen',  'dest': 'allGood'},
     {'trigger': 'setConextLenDone',     'source': 'settingContextLen',  'dest': 'allGood'},
     {'trigger': 'newHypCancel',         'source': 'creatingNewHyp',     'dest': 'allGood'},
@@ -41,8 +49,7 @@ transitions = [
     {'trigger': 'editHypDone',          'source': 'edittingHyp',        'dest': 'allGood'},
     {'trigger': 'delHypCancel',         'source': 'deletingHyp',        'dest': 'allGood'},
     {'trigger': 'delHypDone',           'source': 'deletingHyp',        'dest': 'allGood'},
-    {'trigger': 'reset',                'source': 'allGood',            'dest': 'init'}
-]
+    {'trigger': 'reset',                'source': 'allGood',            'dest': 'init'}]
 
 
 os.environ['STABILITY_HOST'] = 'grpc.stability.ai:443'
@@ -73,7 +80,21 @@ def gen_img(key, prompt):
                                                     # Defaults to k_dpmpp_2m if not specified. Clip Guidance only supports ancestral samplers.
                                                     # (Available Samplers: ddim, plms, k_euler, k_euler_ancestral, k_heun, k_dpm_2, k_dpm_2_ancestral, k_dpmpp_2s_ancestral, k_lms, k_dpmpp_2m, k_dpmpp_sde)
     )
-    return answers
+    
+    try:
+        for resp in answers:
+            for artifact in resp.artifacts:
+                if artifact.finish_reason == generation.FILTER:
+                    warnings.warn(
+                        "Your request activated the API's safety filters and could not be processed."
+                        "Please modify the prompt and try again.")
+                if artifact.type == generation.ARTIFACT_IMAGE:
+                    photo_bytes = io.BytesIO(artifact.binary)
+                    photo_file = types.InputFile(photo_bytes)
+    except Exception as e:
+        raise e
+
+    return photo_file
     
 async def editInMarkdown(user, text):
     if text != '':
@@ -87,3 +108,4 @@ async def editInMarkdown(user, text):
                 await user.currentReplyMsg.edit_text(text)
             except aiogram.exceptions.MessageNotModified:
                 pass
+

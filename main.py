@@ -3,39 +3,38 @@ from aiogram.types import BotCommand
 import aiogram
 import asyncio
 from User import User
-from Data import getDatabaseReady, getUserKey, getUserImgKey, updateUserKey, updateUserPrompts, deleteUser, updateUserImgKey
+from Data import getDatabaseReady, getUserKey, getUserImgKey, getUserVoiceToken, updateUserVoiceToken, updateUserKey, updateUserPrompts, deleteUser, updateUserImgKey
 from dotenv import load_dotenv, find_dotenv
 from Utils import editInMarkdown
 import os
 import pymysql
-from MagicBook import ABOUT, IMGPROMPT, HOW_TO_GET_IMG, NEW_HYPNOTISM
+from MagicBook import ABOUT, IMGPROMPT, HOW_TO_GET_IMG, NEW_HYPNOTISM, VOICE_INTRO_OPENAI, VOICE_INTRO_GENSHIN
 from Utils import gen_img
 import multiprocessing
 import time
 import threading
 import grpc
-import stability_sdk.interfaces.gooseai.generation.generation_pb2 as generation
-import io
 import openai
-import warnings
-from PIL import Image
 
 load_dotenv(find_dotenv('.env'), override=True)
 
 ISDEBUGING = False
-ISDEPLOYING = True
+ISDEPLOYING = False
 
 # 连接数据库
-connection = pymysql.connect(host='localhost', user='root', database='chatbot', password='wxc971231')
+connection = pymysql.connect(host='localhost', user='root', password=os.environ['MYSQL_PASSWORD'])
 cursor = connection.cursor()
 
-# proxy setting for openai API
-os.environ['http_proxy'] = '127.0.0.1:15732'
-os.environ['https_proxy'] = '127.0.0.1:15732'
+# proxy for stability ai
+PROXY_PORT = os.environ['PROXY_PORT']
+os.environ['http_proxy'] = f'http://127.0.0.1:{PROXY_PORT}'
+os.environ['https_proxy'] = f'http://127.0.0.1:{PROXY_PORT}'
 
 # bot dispatcher and user object
-BOT_TOKEN = os.environ['TEST_BOT_TOKEN']
-bot = Bot(token=BOT_TOKEN, proxy='http://127.0.0.1:15732') if ISDEPLOYING else Bot(token=BOT_TOKEN, proxy='http://127.0.0.1:15732') 
+BOT_TOKEN = os.environ['BOT_TOKEN']
+TEST_BOT_TOKEN = os.environ['TEST_BOT_TOKEN']
+bot = Bot(token=BOT_TOKEN, proxy=f'http://127.0.0.1:{PROXY_PORT}') if ISDEPLOYING else \
+      Bot(token=TEST_BOT_TOKEN, proxy=f'http://127.0.0.1:{PROXY_PORT}') 
 dp = Dispatcher(bot)    # 调度器 
 users = {}              # 用户信息管理
 
@@ -66,10 +65,13 @@ async def initUser(message, typing=False):
         await message.reply('请输入Openai API Key，可在[Openai官网](https://platform\.openai\.com/account/api\-keys) 查看：',parse_mode='MarkdownV2', disable_web_page_preview=True)
         return
 
-    # 尝试从数据库获取 Stable diffusion API Key
+    # 尝试从数据库获取 Stable diffusion API Key 和 voice token
     imgKey = getUserImgKey(cursor, connection, userId)
     if imgKey is not None:
-        user.imgKey = imgKey
+        user.setSDKey(imgKey)
+    voiceToken = getUserVoiceToken(cursor, connection, userId)
+    if imgKey is not None:
+        user.setVoiceKey(voiceToken)
 
     # 尝试从数据库获取 API Key
     key = getUserKey(cursor, connection, userId)
@@ -82,6 +84,7 @@ async def initUser(message, typing=False):
             await message.reply('请输入Openai API Key，可在[Openai官网](https://platform\.openai\.com/account/api\-keys) 查看：',parse_mode='MarkdownV2', disable_web_page_preview=True)
         
 # -----------------------------------------------------------------------------
+# 重置机器人
 @dp.message_handler(commands=['resetall',])
 async def reset_all(message: types.Message):
     if message.chat.type == 'private':
@@ -94,6 +97,7 @@ async def reset_all(message: types.Message):
         await message.reply('机器人已重置')
         #await initUser(message)
 
+# 启动机器人
 @dp.message_handler(commands=['start', 'about', 'help'])
 async def welcome(message: types.Message):
     if message.chat.type == 'private':
@@ -101,7 +105,7 @@ async def welcome(message: types.Message):
         await message.answer(ABOUT, parse_mode='MarkdownV2', disable_web_page_preview=True)
         await initUser(message)
 
-# 设置OpenAI API Key
+# 设置 OpenAI API Key
 @dp.message_handler(commands=['setapikey', ])
 async def set_openai_key(message: types.Message):
     if message.chat.type == 'private':
@@ -122,7 +126,6 @@ async def set_openai_key(message: types.Message):
                 reply_markup=user.getCancelBorad()
             )
 
-
 # 设置 Stable diffusion API Key
 @dp.message_handler(commands=['setimgkey', ])
 async def set_img_key(message: types.Message):
@@ -134,10 +137,20 @@ async def set_img_key(message: types.Message):
         if user.state == 'settingImgKey':
             text = f'当前Stable diffusion API Key设置为:\n\n`{user.imgKey}`\n\n请[在此处查看你的API Key](https://beta.dreamstudio.ai/account)，回复Key进行修改' if user.imgKey is not None else '当前未设置Stable diffusion API Key，请[在此处查看你的API Key](https://beta.dreamstudio.ai/account)，回复Key进行修改：'
             text = text.replace('-', r'\-').replace('.', r'\.')
-            await message.answer(
-                text, parse_mode='MarkdownV2', 
-                reply_markup=user.getCancelBorad()
-            )
+            await message.answer(text, parse_mode='MarkdownV2', reply_markup=user.getCancelBorad())
+
+# 设置 Bert-VITS2 voice token
+@dp.message_handler(commands=['setvoicetoken', ])
+async def set_img_key(message: types.Message):
+    if message.chat.type == 'private':
+        if await isDebugingNdeploying(message): return
+        await initUser(message)
+        user = users[message.chat.id]
+        user.stateTrans('allGood', 'setVoiceToken')
+        if user.state == 'settingVoiceToken':
+            text = f'当前Stable diffusion API Key设置为:\n\n`{user.voiceToken}`\n\n请[在此处查看你的 voice token](https://tts.ai-hobbyist.org/#/apikey)，回复Key进行修改' if user.voiceToken is not None else '当前未设置 voice token，请[在此处查看你的voice token](https://tts.ai-hobbyist.org/#/apikey)，回复token进行修改（这个语音库是免费的）：'
+            text = text.replace('-', r'\-').replace('.', r'\.')
+            await message.answer(text, parse_mode='MarkdownV2', reply_markup=user.getCancelBorad())
 
 # 生成图像示范
 @dp.message_handler(commands=['howtogetimg', ])
@@ -148,7 +161,7 @@ async def how_to_get_img(message: types.Message):
         await message.answer(HOW_TO_GET_IMG, parse_mode='MarkdownV2')
 
 # 调用 Stable diffusion 生成图像
-@dp.message_handler(regexp='^/img.*')
+@dp.message_handler(regexp='^(\/prompt|\/img).*')
 async def get_img(message: types.Message):
     if message.chat.type == 'private':
         if await isDebugingNdeploying(message): return
@@ -158,101 +171,39 @@ async def get_img(message: types.Message):
             await message.answer('要使用图像生成功能，请先点击左下角菜单绑定 stable diffusion API key')
             return
 
-        if message.text[4:].strip() == '':
-            await message.answer('未检测到图像描述信息，请仿照以下格式生成图像\n\n/img 夕阳下梦幻般的沙滩和粉色天空，写实风格')
+        cmd, prompt = message.text.split(' ', 1)
+        prompt = prompt.strip()
+        if prompt == '':
+            example = '/img 夕阳下梦幻般的沙滩和粉色天空，写实风格' if cmd == '/img' else '/prompt A silver mech horse running in a dark valley, in the night, Beeple, Kaino University, high-definition picture, unreal engine, cyberpunk'
+            await message.answer(f'未检测到图像描述信息，请仿照以下格式生成图像\n\n{example}')
             return
-            
-        imgPrompt = IMGPROMPT + message.text[4:].strip()
+        
         user.stateTrans('allGood', 'img')
-        if user.state == 'creatingImg':
-            try:
+        try:
+            # 生产图片
+            if cmd == '/img':
+                prompt = IMGPROMPT + prompt
                 note = await message.answer('正在使用GPT模型翻译prompt，请稍候')
-                reply = await asyncio.to_thread(user.getReply, imgPrompt, False)
-                await note.edit_text('正在使用以下prompt生成图像，请稍候\n'+'-'*35+f'\n\n{reply}')
-                answers = gen_img(user.imgKey, reply)
-            except Exception as e:
-                await message.answer('出错了...\n\n'+str(e))
-                print(f'[get reply error]: user{message.chat.first_name}', e)
-                user.stateTrans('creatingImg', 'imgFailed')
-                return
-            
-            print(reply)
-            try:
-                for resp in answers:
-                    for artifact in resp.artifacts:
-                        if artifact.finish_reason == generation.FILTER:
-                            warnings.warn(
-                                "Your request activated the API's safety filters and could not be processed."
-                                "Please modify the prompt and try again.")
-                        if artifact.type == generation.ARTIFACT_IMAGE:
-                            photo_bytes = io.BytesIO(artifact.binary)
-                            photo_file = types.InputFile(photo_bytes)
-                            await bot.send_photo(chat_id=user.id, photo=photo_file)
-                            user.stateTrans('creatingImg', 'imgDone')
-                            return
-            except grpc.RpcError as e:
-                if e.code() == grpc.StatusCode.UNAUTHENTICATED:
-                    error = f"Authentication failed: {e.details()}" 
-                else:
-                    error = f"RPC failed with error code: {e.code()}" 
-            except Exception as e:
-                error = str(e)
-
-            await message.answer('出错了...\n\n'+error)       
-            print(f'[get reply error]: user{message.chat.first_name}', error)
-            user.stateTrans('creatingImg', 'imgFailed')
-
-# 调用 Stable diffusion 生成图像
-@dp.message_handler(regexp='^/prompt.*')
-async def get_img(message: types.Message):
-    if message.chat.type == 'private':
-        if await isDebugingNdeploying(message): return
-        await initUser(message)
-        user = users[message.chat.id]
-        if user.imgKey is None:
-            await message.answer('要使用图像生成功能，请先点击左下角菜单绑定 stable diffusion API key')
+                prompt = await asyncio.to_thread(user.getReply, prompt, False)
+                await note.edit_text('正在使用以下prompt生成图像，请稍候\n'+'-'*35+f'\n\n{prompt}')
+            else:
+                await message.answer('正在使用以下prompt生成图像，请稍候\n'+'-'*35+f'\n\n{prompt}')
+            photo_file = await asyncio.to_thread(gen_img, user.imgKey, prompt)
+            # 发送到用户
+            user.stateTrans('creatingImg', 'imgDone')   # 先切换状态以免卡死
+            await bot.send_photo(chat_id=user.id, photo=photo_file)
             return
-
-        if message.text[4:].strip() == '':
-            await message.answer('未检测到图像描述信息，请仿照以下格式生成图像\n\n/prompt A silver mech horse running in a dark valley, in the night, Beeple, Kaino University, high-definition picture, unreal engine, cyberpunk')
-            return
-            
-        imgPrompt = message.text[7:].strip()
-        user.stateTrans('allGood', 'img')
-        if user.state == 'creatingImg':
-            try:
-                await message.answer('正在使用以下prompt生成图像，请稍候\n'+'-'*35+f'\n\n{imgPrompt}')
-                answers = gen_img(user.imgKey, imgPrompt)
-            except Exception as e:
-                await message.answer('出错了...\n\n'+str(e))
-                print(f'[get reply error]: user{message.chat.first_name}', e)
-                user.stateTrans('creatingImg', 'imgFailed')
-                return
-            
-            try:
-                for resp in answers:
-                    for artifact in resp.artifacts:
-                        if artifact.finish_reason == generation.FILTER:
-                            warnings.warn(
-                                "Your request activated the API's safety filters and could not be processed."
-                                "Please modify the prompt and try again.")
-                        if artifact.type == generation.ARTIFACT_IMAGE:
-                            photo_bytes = io.BytesIO(artifact.binary)
-                            photo_file = types.InputFile(photo_bytes)
-                            await bot.send_photo(chat_id=user.id, photo=photo_file)
-                            user.stateTrans('creatingImg', 'imgDone')
-                            return
-            except grpc.RpcError as e:
-                if e.code() == grpc.StatusCode.UNAUTHENTICATED:
-                    error = f"Authentication failed: {e.details()}" 
-                else:
-                    error = f"RPC failed with error code: {e.code()}" 
-            except Exception as e:
-                error = str(e)
-
-            await message.answer('出错了...\n\n'+error)       
-            print(f'[get reply error]: user{message.chat.first_name}', error)
-            user.stateTrans('creatingImg', 'imgFailed')
+        except grpc.RpcError as e:
+            if e.code() == grpc.StatusCode.UNAUTHENTICATED:
+                error = f"Authentication failed: {e.details()}" 
+            else:
+                error = f"RPC failed with error code: {e.code()}" 
+        except Exception as e:
+            error = str(e)
+        
+        await message.answer('出错了...\n\n'+error)
+        print(f'[get reply error]: user{message.chat.first_name}', error)
+        user.stateTrans('creatingImg', 'imgFailed')
 
 # 设置上下文长度
 @dp.message_handler(commands=['setcontextlen', ])
@@ -344,10 +295,13 @@ async def show_hypnotism(message: types.Message):
         if user.state == 'allGood':
             await message.reply(f'当前GPT被催眠为【{user.character}】，使用的咒语如下\n'+'-'*35+'\n\n'+user.system)
 
-
 # ----------------------------------------------------------------------------------------
 async def dialogue(user:User, message:types.Message, text:str):
     assert user.state == 'allGood'
+    if text.startswith('debug'):
+        debugMsg = await message.answer(f'Debug选项:{text}')
+        await debugMsg.edit_reply_markup(user.getDebugBorad())
+        return
     try:
         # 清除上一句回复的重新生成按钮
         if user.currentReplyMsg is not None:
@@ -358,41 +312,54 @@ async def dialogue(user:User, message:types.Message, text:str):
             
         # openai请求
         user.currentReplyMsg = await message.answer(f'{user.character} 正在思考...')
-        response = user.getReply(text, True)
 
-        # 流式打印回复
-        reply, replys = '', []
-        for chunk in response:
-            repLen = len(reply)
-            content = chunk.choices[0].delta.content
+        # 沉浸模式直接输出语音，否则流式打印回复
+        if not user.immersion:
+            response = user.getReply(text, True)
+            reply, replys = '', []
+            for chunk in response:
+                repLen = len(reply)
+                content = chunk.choices[0].delta.content
 
-            # 回复太长则分段
-            if repLen > 4000:
-                # 完成上一段的回复
-                await editInMarkdown(user, reply)   
-                replys.append(reply)
-                # 新启一段
-                user.currentReplyMsg = await message.answer(content)
-                reply, repLen = content, len(reply)
+                # 回复太长则分段
+                if repLen > 4000:
+                    # 完成上一段的回复
+                    await editInMarkdown(user, reply)   
+                    replys.append(reply)
+                    # 新启一段
+                    user.currentReplyMsg = await message.answer(content)
+                    reply, repLen = content, len(reply)
 
-            # 每15个字符更新一次，如果每个字符都更新会很慢
-            if repLen != 0 and repLen % 15 == 0:
-                await editInMarkdown(user, reply)
+                # 每15个字符更新一次，如果每个字符都更新会很慢
+                if repLen != 0 and repLen % 15 == 0:
+                    await editInMarkdown(user, reply)
 
-            if content is not None:
-                reply += content
+                if content is not None:
+                    reply += content
 
-        # 完成最后一段回复，增加重新生成按钮
-        replys.append(reply)
-        await editInMarkdown(user, reply)
-        await user.currentReplyMsg.edit_reply_markup(user.getReGenKeyBorad())
-    
-        # 还原完整回复
-        full_reply = ''.join(replys)
+            # 完成最后一段回复，增加重新生成按钮
+            replys.append(reply)
+            await editInMarkdown(user, reply)
+            await user.currentReplyMsg.edit_reply_markup(user.getReGenKeyBorad())
+
+            # 还原完整回复
+            full_reply = ''.join(replys)
+        else:
+            await user.currentReplyMsg.edit_text(f'{user.character} 正在讲话...')
+            full_reply = user.getReply(text, False)
+            try:
+                voice_path = user.text2voice(text=full_reply)
+                await user.currentReplyMsg.delete()
+                with open(voice_path, 'rb') as voice:
+                    user.currentReplyMsg = await bot.send_voice(user.id, voice, reply_markup=user.getImmersionBorad())
+            except Exception as e:
+                await message.answer(f'语音合成失败...\n\n{str(e)}')
+                if user.voice_type == 'Genshin':
+                    await message.answer(f'对于密钥错误，请尝试在左下角菜单重设voice token，若问题持续出现，请联系开发者 @GetupEarlyTomo')
 
         # 更新上下文
         if user.state != 'creatingImg':
-            user.history['assistant'].insert(0, full_reply)
+            user.history['assistant'].insert(0, full_reply)    
 
     except UnicodeEncodeError as e:
         reply = f'出错了...\n\n{str(e)}\n\n这很可能是因为您输入了带中文的API Key，请点击左下角菜单重新设置'        
@@ -421,7 +388,7 @@ async def voice(message: types.Message):
         # 获取用户发送的语音消息
         user.currentReplyMsg = await message.reply(f'{user.character} 正在识别语音内容...')
         voice = message.voice
-        voice_path = f'./audio/{user.id}_in{voice.file_id}.mp3'
+        voice_path = f'./Audio/{user.id}_in{voice.file_id}.mp3'
         await bot.download_file_by_id(voice.file_id, destination=voice_path)
 
         # 转文本
@@ -459,6 +426,14 @@ async def chat(message: types.Message):
                 updateUserImgKey(cursor, connection, user.id, user.imgKey)
                 await message.reply(f'Stable Diffusion API Key设置为:\n\n{user.imgKey}\n\n请点击左下菜单或 /howtogetimg 查看生成图像的正确方式')
                 user.stateTrans('settingImgKey', 'setImgKeyDone')
+
+            # 设置 Voice Token
+            elif user.state == 'settingVoiceToken':       
+                user = users[message.chat.id]
+                user.setVoiceKey(text)
+                updateUserVoiceToken(cursor, connection, user.id, user.voiceToken)
+                await message.reply(f'Voice Token 设置为:\n\n{user.voiceToken}\n\n现在可以继续聊天并使用原神语音库了')
+                user.stateTrans('settingVoiceToken', 'setVoiceTokenDone')                
                 return
 
             # 设置上下文长度
@@ -512,7 +487,7 @@ async def chat(message: types.Message):
                     user.hypnotism[user.currentEdittingChar] = text
                     updateUserPrompts(cursor, connection, user.id, user.hypnotism)
                     await message.reply(f'咒语【{user.currentEdittingChar}】编辑完成！想要使用这条咒语的话，需要先在《魔导绪论》中点选催眠哦')
-                    user.stateTrans('edittingHyp', 'editHypDone')              
+                    user.stateTrans('edittingHyp', 'editHypDone')         
                     return    
             
             # 删除咒语
@@ -526,6 +501,22 @@ async def chat(message: types.Message):
             await dialogue(user, message, message.text)      
 
 # -----------------------------------------------------------------------------
+# debug
+@dp.callback_query_handler(lambda call: call.data.startswith('debug'))
+async def debug(call: types.CallbackQuery, ): 
+    user = users[call.message.chat.id]
+    text = call.message.text
+    if call.data.endswith('audio'):
+        text = text[text.find(':')+1:]
+        _, voice, content = text.split(' ', 2)
+        voice_path = user.text2voice_test(voice=voice, text=content)
+        try:
+            if voice_path is not None:
+                with open(voice_path, 'rb') as voice:
+                    await bot.send_voice(user.id, voice)
+        except Exception as e:
+            print(f'[Check]: Gen Audio failed as {e}')
+
 # 取消当前操作
 @dp.callback_query_handler(lambda call: call.data == 'cancel')
 async def cancel(call: types.CallbackQuery, ):
@@ -537,6 +528,8 @@ async def cancel(call: types.CallbackQuery, ):
         user.stateTrans('settingChatKey', 'setApiKeyCancel')
     elif user.state == 'settingImgKey':                       
         user.stateTrans('settingImgKey', 'setImgKeyCancel')
+    elif user.state == 'settingVoiceToken':                       
+        user.stateTrans('settingVoiceToken', 'setVoiceTokenCancel')
     elif user.state == 'creatingNewHyp':
         user.stateTrans('creatingNewHyp', 'newHypCancel')
     elif user.state == 'edittingHyp':
@@ -588,19 +581,65 @@ async def editHypnotism(call: types.CallbackQuery, ):
     await call.message.answer(f'请直接输入咒语【{character}】的新文本，当前咒语文本如下\n'+'-'*35+'\n\n'+hypEditting)
 
 # 生成语音回复
-@dp.callback_query_handler(lambda call: call.data.startswith('audio'))
+@dp.callback_query_handler(lambda call: call.data == 'audio_gen')
 async def gen_audio(call: types.CallbackQuery, ):
     user = users[call.message.chat.id]
     message = call.message
 
     notice = await message.answer(f'{user.character} 正在讲话...')
-    voice_path = user.text2voice(text=message.text, type=call.data)
     try:
+        voice_path = user.text2voice(text=message.text)
         with open(voice_path, 'rb') as voice:
             await bot.send_voice(user.id, voice)
+        await notice.delete()
     except Exception as e:
-        print(f'[Check]: Gen Audio failed as {e}')
-    await notice.delete()
+        await message.answer(f'语音合成失败...\n\n{str(e)}')
+        if user.voice_type == 'Genshin':
+            await message.answer(f'对于密钥错误，请尝试在左下角菜单重设voice token，若问题持续出现，请联系开发者 @GetupEarlyTomo')
+
+# 声音操作
+@dp.callback_query_handler(lambda call: call.data.startswith('audio'))
+async def gen_audio(call: types.CallbackQuery, ):
+    user = users[call.message.chat.id]
+    message = call.message
+    if call.data.endswith('select'):
+        await user.currentReplyMsg.edit_reply_markup(None)
+        user.currentVoiceMsg = await message.answer(f'请选择声音类型，可[在此](https://t\.me/nekolalala/7200/7201)试听', parse_mode='MarkdownV2', reply_markup=user.getVoiceTypeBorad())
+    elif call.data.endswith('back'):
+        await user.currentVoiceMsg.delete()
+        await user.currentReplyMsg.edit_reply_markup(user.getReGenKeyBorad())
+    elif call.data.endswith('OpenAI'):
+        user.voice_type = 'OpenAI'
+        await user.currentVoiceMsg.edit_text(VOICE_INTRO_OPENAI, parse_mode='MarkdownV2',  disable_web_page_preview=True,reply_markup=user.getVoiceSexBorad())
+    elif call.data.endswith('Genshin'):
+        if user.voiceToken is None:
+            await user.currentVoiceMsg.edit_text('要使用该模型，请先点击左下角设置免费的 voice token', reply_markup=user.getVoiceTokenBorad())
+        else:
+            user.voice_type = 'Genshin'
+            await user.currentVoiceMsg.edit_text(VOICE_INTRO_GENSHIN, parse_mode='MarkdownV2', disable_web_page_preview=True, reply_markup=user.getVoiceSexBorad(),)
+    elif call.data.endswith('audio_back_to_select_type'):
+        await user.currentVoiceMsg.edit_text(f'请选择声音类型，可[在此](https://t\.me/nekolalala/7200/7201)试听', parse_mode='MarkdownV2', reply_markup=user.getVoiceTypeBorad())
+    elif call.data.endswith('audio_back_to_select_sex'):
+        await user.currentVoiceMsg.edit_reply_markup(user.getVoiceSexBorad())
+    elif call.data.endswith('male') or call.data.endswith('female'):
+        user.voice_sex = 'female' if call.data.endswith('female') else 'male'
+        await user.currentVoiceMsg.edit_reply_markup(user.getVoiceBorad())
+    else:
+        user.voice = call.data.split('_')[-1]
+        await user.currentVoiceMsg.delete()
+        await user.currentReplyMsg.edit_reply_markup(user.getReGenKeyBorad())
+
+# 启动沉浸模式
+@dp.callback_query_handler(lambda call: call.data == 'immersion')
+async def regenerate(call: types.CallbackQuery, ):
+    user = users[call.message.chat.id]
+    message = call.message
+    if not user.immersion:
+        await message.answer('沉浸模式已启动，现在机器人只会进行语音回复，您也可以使用语音输入以获得最佳体验')
+        user.immersion = True
+    else:
+        await message.answer('沉浸模式已退出')
+        user.immersion = False
 
 # 重新生成回答
 @dp.callback_query_handler(lambda call: call.data == 'regenerate')
@@ -608,44 +647,61 @@ async def regenerate(call: types.CallbackQuery, ):
     user = users[call.message.chat.id]
     message = call.message
     
-    if user.currentReplyMsg is not None:
-        await user.currentReplyMsg.edit_reply_markup(None)
-    await editInMarkdown(user, f'{user.character} 正在思考...')
-    
+    if not user.immersion:
+        if user.currentReplyMsg is not None:
+            await user.currentReplyMsg.edit_reply_markup(None)
+        await editInMarkdown(user, f'{user.character} 正在思考...')
+    else:
+        await user.currentReplyMsg.delete()
+        user.currentReplyMsg = await message.answer(f'{user.character} 正在思考...')
+
     # 从上下文中删除上一个回复
     user.history['assistant'].pop(0)
 
-    # 流式打印回复
-    response = user.getReply('', True)
-    reply, replys = '', []
-    for chunk in response:
-        repLen = len(reply)
-        content = chunk.choices[0].delta.content
+    # 沉浸模式直接输出语音，否则流式打印回复
+    if not user.immersion:
+        response = user.getReply('', True)
+        reply, replys = '', []
+        for chunk in response:
+            repLen = len(reply)
+            content = chunk.choices[0].delta.content
 
-        # 回复太长则分段
-        if repLen > 4000:
-            # 完成上一段的回复
-            await editInMarkdown(user, reply)   
-            replys.append(reply)
-            # 新启一段
-            user.currentReplyMsg = await message.answer(content)
-            reply, repLen = content, len(reply)
+            # 回复太长则分段
+            if repLen > 4000:
+                # 完成上一段的回复
+                await editInMarkdown(user, reply)   
+                replys.append(reply)
+                # 新启一段
+                user.currentReplyMsg = await message.answer(content)
+                reply, repLen = content, len(reply)
 
-        # 每15个字符更新一次，如果每个字符都更新会很慢
-        if repLen != 0 and repLen % 15 == 0:
-            await editInMarkdown(user, reply)
+            # 每15个字符更新一次，如果每个字符都更新会很慢
+            if repLen != 0 and repLen % 15 == 0:
+                await editInMarkdown(user, reply)
 
-        # 拼接当前回复
-        if content is not None:
-            reply += content
+            # 拼接当前回复
+            if content is not None:
+                reply += content
 
-    # 打印最后一段回复，增加重新生成按钮
-    replys.append(reply)
-    await editInMarkdown(user, reply)
-    await user.currentReplyMsg.edit_reply_markup(user.getReGenKeyBorad())
+        # 打印最后一段回复，增加重新生成按钮
+        replys.append(reply)
+        await editInMarkdown(user, reply)
+        await user.currentReplyMsg.edit_reply_markup(user.getReGenKeyBorad())
 
-    # 还原完整回复
-    full_reply = ''.join(replys)
+        # 还原完整回复
+        full_reply = ''.join(replys)
+    else:
+        await user.currentReplyMsg.edit_text(f'{user.character} 正在讲话...')
+        full_reply = user.getReply('', False)
+        try:
+            voice_path = user.text2voice(text=full_reply)
+            await user.currentReplyMsg.delete()
+            with open(voice_path, 'rb') as voice:
+                user.currentReplyMsg = await bot.send_voice(user.id, voice, reply_markup=user.getImmersionBorad())
+        except Exception as e:
+            await message.answer(f'语音合成失败...\n\n{str(e)}')
+            if user.voice_type == 'Genshin':
+                await message.answer(f'对于密钥错误，请尝试在左下角菜单重设voice token，若问题持续出现，请联系开发者 @GetupEarlyTomo')
 
     # 更新上下文
     user.history['assistant'].insert(0, full_reply)
@@ -662,6 +718,7 @@ async def start():
         BotCommand('setcontextlen','设置上下文长度'),
         BotCommand('setapikey','设置OpenAI Key'),
         BotCommand('setimgkey','设置Stable diffusion Key'),
+        BotCommand('setvoicetoken','设置voice token'),
         BotCommand('howtogetimg','生成图像示范'),
         BotCommand('about','使用指南'),
         BotCommand('resetall','遇到严重错误时点此重置机器人')
@@ -685,8 +742,6 @@ def connectionGuard(process):
         time.sleep(3)
 
 if __name__ == '__main__':
-    #clearAllPrompts(cursor,connection,DEFAULT_HYPNOTISM)
-
     # 在子进程中启动 bot
     p = multiprocessing.Process(target=botActivate)
     p.start()
@@ -697,4 +752,4 @@ if __name__ == '__main__':
     guardThread.start()   
 
     # 主线程/主进程死循环，禁止程序退出
-    while True: time.sleep(0.1)
+    while True: time.sleep(0.5)

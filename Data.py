@@ -25,6 +25,7 @@ def getDatabaseReady(cursor, connection):
                         user_key VARCHAR(190) NOT NULL,
                         user_img_key VARCHAR(190) NOT NULL,
                         prompts TEXT,
+                        voice_token VARCHAR(190) NOT NULL,
                         PRIMARY KEY (id),
                         UNIQUE KEY (user_id)
                     )'''
@@ -63,6 +64,14 @@ def getUserImgKey(cursor, connection, userId):
     key = None if row[0] == '' else row[0]
     return key
 
+def getUserVoiceToken(cursor, connection, userId):
+    connection.ping(reconnect=True) # 检查连接是否存在，断开的话重连
+    select_user_info = f"SELECT voice_token FROM user_info WHERE user_id={userId}"
+    cursor.execute(select_user_info)
+    row = cursor.fetchone()
+    token = None if row[0] == '' else row[0]
+    return token
+
 def updateUserKey(cursor, connection, userId, userKey):
     connection.ping(reconnect=True) # 检查连接是否存在，断开的话重连
     update_user_key = f"UPDATE user_info SET user_key='{userKey}' WHERE user_id={userId}"
@@ -73,6 +82,12 @@ def updateUserImgKey(cursor, connection, userId, userImgKey):
     connection.ping(reconnect=True) # 检查连接是否存在，断开的话重连
     update_img_key = f"UPDATE user_info SET user_img_key='{userImgKey}' WHERE user_id={userId}"
     cursor.execute(update_img_key)
+    connection.commit()
+
+def updateUserVoiceToken(cursor, connection, userId, userVoiceToken):
+    connection.ping(reconnect=True) # 检查连接是否存在，断开的话重连
+    update_voice_token = f"UPDATE user_info SET voice_token='{userVoiceToken}' WHERE user_id={userId}"
+    cursor.execute(update_voice_token)
     connection.commit()
 
 def getUserPrompts(cursor, connection, userId):

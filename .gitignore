@@ -132,4 +132,4 @@ dmypy.json
 .env
 _test.py
 note.txt
-/Audio
+Audio/

@@ -1,9 +1,14 @@
 from openai import OpenAI
 from transitions import Machine
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from Data import initUser, getUserPrompts, updateUserPrompts
-from Utils import transitions, states
+from Data import initUser, getUserPrompts
 from datetime import datetime
+from pydub import AudioSegment
+import requests
+import io
+import math
+from Utils import transitions, states
+from MagicBook import *
 
 USER_STATUS_INIT = 0
 USER_STATUS_SETTINGKEY = 1
@@ -20,6 +25,7 @@ class User():
         self.id = id
         self.key = key   
         self.imgKey = None
+        self.voiceToken = None
         self.cursor = cursor
         self.connection = connection
 
@@ -29,11 +35,17 @@ class User():
         self.character = 'GPT'
         self.system = ''
         self.contextMaxLen = 5
+        self.immersion = False
         self.history = {'user':[], 'assistant':[]}
+        self.voice_type = 'OpenAI'
+        self.voice_sex = 'female'
+        self.voice = 'Nova'
 
+        self.currentVoiceMsg = None
         self.currentReplyMsg = None
         self.currentEdittingChar = None
 
+        self.log = f'./ChatLog/{self.name}_{self.id}.txt'
         self.stateMachine = Machine(model=self, states=states, transitions=transitions, initial='init')
 
     def stateTrans(self, source:str, trigger:str):
@@ -48,6 +60,9 @@ class User():
     def setSDKey(self, key):
         self.imgKey = key
 
+    def setVoiceKey(self, token):
+        self.voiceToken = token
+
     def clearHistory(self):
         self.history = {'user':[], 'assistant':[]}
 
@@ -61,8 +76,8 @@ class User():
 
             # 如果 text 为空，是在重新生成之前的回答
             if text != '':
-                if self.character != 'GPT':
-                    text += '，扮演指定角色回答。'  # 当前用户发言预处理
+                #if self.character != 'GPT':
+                #    text += '，扮演指定角色回答。'  # 当前用户发言预处理
                 users.insert(0, text)
 
             # 组合上下文
@@ -88,15 +103,57 @@ class User():
             )
         return transcript
 
-    def text2voice(self, text:str, type:str):
-        audio_path = f'./audio/{self.id}_{datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]}.ogg'
-        response = self.client.audio.speech.create(
-            model="tts-1",
-            voice="nova" if type.endswith('female') else 'alloy',
-            input=text,
-            response_format='opus'
-        )
-        response.stream_to_file(audio_path)
+    def text2voice(self, text:str):
+        return self.text2voice_test(voice=self.voice, text=text)
+
+    def text2voice_test(self, voice:str, text:str):
+        audio_path = f'./Audio/{self.id}_{datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]}.ogg'
+        if voice in VOICE_OPENAI_MALE or voice in VOICE_OPENAI_FEMALE:
+            response = self.client.audio.speech.create(
+                model="tts-1",
+                voice=voice.lower(),
+                input=text,
+                response_format='opus'
+            )
+            response.stream_to_file(audio_path)
+        else:
+            token = self.voiceToken
+            response = requests.post('https://tirs.ai-lab.top/api/status', json={'token':token})
+            data = response.json()
+            if not data['is_ok']:
+                raise ValueError('Voice Token 已失效，请重新生成')
+
+            url = "https://tirs.ai-lab.top/api/ex/vits"
+            payload = {
+                "lang": "zh",
+                "appid": "9tuof1o8y7ni8h3e",
+                "text": text,
+                "speaker": voice,
+                "sdp_ratio": 0.2,
+                "noise": 0.6,
+                "noisew": 0.8,
+                "length": 1,
+                "token": token
+            }
+
+            response = requests.post(url, json=payload)
+            if response.status_code == 200:
+                data = response.json()
+                audio_url = data["audio"]
+                if data["status"] == 1:    
+                    # 生成成功，下载音频文件
+                    audio_response = requests.get(audio_url)
+                    if audio_response.status_code == 200:    
+                        audio_content = io.BytesIO(audio_response.content)
+                        # wav转ogg
+                        sound = AudioSegment.from_wav(audio_content)
+                        sound.export(audio_path, format="ogg")
+                    else:
+                        raise ValueError("音频文件下载失败")
+                else:
+                    raise ValueError(data["message"])
+            else:
+                raise ValueError(f"API请求失败，状态码:{response.status_code}")
         return audio_path
 
     def getReply(self, text, useStreamMode=False):
@@ -130,23 +187,74 @@ class User():
 
     def getCancelBorad(self):
         inlineKeyboard = InlineKeyboardMarkup()
-        inlineButton = InlineKeyboardButton(text='【取消】', callback_data='cancel')     
+        inlineButton = InlineKeyboardButton(text='【取消并继续聊天】', callback_data='cancel')     
         inlineKeyboard.add(inlineButton)
         return inlineKeyboard
 
     def getReGenKeyBorad(self):
         inlineKeyboard = InlineKeyboardMarkup(row_width=2)
-        inlineButton_audio_female = InlineKeyboardButton(text='【生成音频 (女)】', callback_data='audio_female')
-        inlineButton_audio_male = InlineKeyboardButton(text='【生成音频 (男)】', callback_data='audio_male')
-        inlineKeyboard.row(inlineButton_audio_female, inlineButton_audio_male)
+        inlineButton_audio_gen = InlineKeyboardButton(text=f'【用{self.voice}的声音读】', callback_data='audio_gen')
+        inlineButton_audio_select = InlineKeyboardButton(text='【选择声音】', callback_data='audio_select')
+        inlineKeyboard.row(inlineButton_audio_gen, inlineButton_audio_select)
+        inlineButton_immersion = InlineKeyboardButton(text='【沉浸模式】', callback_data='immersion')
         inlineButton_regen = InlineKeyboardButton(text='【重新回答】', callback_data='regenerate')
-        inlineKeyboard.add(inlineButton_regen)
+        inlineKeyboard.row(inlineButton_immersion, inlineButton_regen)
         return inlineKeyboard
-
 
     def getModelKeyBorad(self):
         inlineKeyboard = InlineKeyboardMarkup()
         inlineButton35 = InlineKeyboardButton(text=MODEL_GPT35, callback_data='set_model'+MODEL_GPT35)     
         inlineButton40 = InlineKeyboardButton(text=MODEL_GPT40, callback_data='set_model'+MODEL_GPT40)     
         inlineKeyboard.add(inlineButton35, inlineButton40)
+        return inlineKeyboard
+
+    def getImmersionBorad(self):
+        inlineKeyboard = InlineKeyboardMarkup()
+        inlineButton_immersion = InlineKeyboardButton(text='【退出沉浸模式】', callback_data='immersion')     
+        inlineButton_regen = InlineKeyboardButton(text='【重新回答】', callback_data='regenerate')     
+        inlineKeyboard.add(inlineButton_immersion)
+        inlineKeyboard.add(inlineButton_regen)
+        return inlineKeyboard
+    
+    def getVoiceTokenBorad(self):
+        inlineKeyboard = InlineKeyboardMarkup(row_width=1)
+        inlineButton_back = InlineKeyboardButton(text='【返回】', callback_data='audio_back_to_select_type')
+        inlineKeyboard.add(inlineButton_back)
+        return inlineKeyboard
+
+    def getVoiceTypeBorad(self):
+        inlineKeyboard = InlineKeyboardMarkup(row_width=1)
+        inlineButton_audio_openai = InlineKeyboardButton(text=f'【OpenAI】', callback_data='audio_OpenAI')
+        inlineButton_audio_genshin = InlineKeyboardButton(text='【Genshin】', callback_data='audio_Genshin')
+        inlineKeyboard.row(inlineButton_audio_openai, inlineButton_audio_genshin)
+        inlineButton_back = InlineKeyboardButton(text='【返回】', callback_data='audio_back')
+        inlineKeyboard.add(inlineButton_back)
+        return inlineKeyboard
+
+    def getVoiceSexBorad(self):
+        inlineKeyboard = InlineKeyboardMarkup(row_width=1)
+        inlineButton_audio_male = InlineKeyboardButton(text=f'【男声】', callback_data='audio_male')
+        inlineButton_audio_female = InlineKeyboardButton(text='【女声】', callback_data='audio_female')
+        inlineKeyboard.row(inlineButton_audio_male, inlineButton_audio_female)
+        inlineButton_back = InlineKeyboardButton(text='【返回】', callback_data='audio_back_to_select_type')
+        inlineKeyboard.add(inlineButton_back)
+        return inlineKeyboard
+    
+    def getVoiceBorad(self):
+        voices = VOICES[self.voice_type][self.voice_sex]
+        inlineKeyboard = InlineKeyboardMarkup(row_width=math.floor(len(voices)/3))
+        for i in range(0, len(voices), 3):
+            row = []
+            for voice in voices[i:i+3]:
+                inlineButton = InlineKeyboardButton(text=voice, callback_data=f'audio_{voice}')
+                row.append(inlineButton)
+            inlineKeyboard.row(*row)
+        inlineButton_back = InlineKeyboardButton(text='【返回】', callback_data='audio_back_to_select_sex')
+        inlineKeyboard.add(inlineButton_back)
+        return inlineKeyboard
+
+    def getDebugBorad(self):
+        inlineKeyboard = InlineKeyboardMarkup(row_width=1)
+        inlineButton_debug_audio = InlineKeyboardButton(text=f'【声音测试】', callback_data='debug_audio')
+        inlineKeyboard.add(inlineButton_debug_audio)
         return inlineKeyboard

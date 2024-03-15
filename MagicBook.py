@@ -64,3 +64,23 @@ IMGPROMPT += "Another prompt example for 双马尾动漫少女，蓝黑色头发
 IMGPROMPT += "Another prompt example for 拟人化的兔子肖像，油画，史诗电影风格 is “a oil portrait of the bunny, Octane rendering, anthropomorphic creature, reddit moderator, epic, cinematic, elegant, highly detailed, featured on artstation.” "
 IMGPROMPT += "Another prompt example for 黄昏下，大雨中，两个持刀的海盗在海盗船上决斗 is “Two knife-wielding pirates dueling on a pirate ship, dusk, heavy rain, unreal engine, 8k, high-definition, by Alphonse Mucha and Wayne Barlowe.” "
 IMGPROMPT += "Now write a prompts for "
+
+VOICE_OPENAI_MALE = ['Echo', 'Fable', 'Onyx'] 
+VOICE_OPENAI_FEMALE = ['Nova', 'Shimmer', 'Alloy']
+VOICE_OPENAI = {'male': VOICE_OPENAI_MALE, 'female': VOICE_OPENAI_FEMALE}
+
+VOICE_GENSHIN_MALE = [
+    "空", "温迪", "班尼特", "凯亚", "迪卢克", "雷泽", "钟离", "白术", "行秋",  "重云", 
+    "散兵", "达达利亚", "枫原万叶", "神里绫人", "艾尔海森", "赛诺",  "提纳里", "林尼", "菲米尼"
+]
+VOICE_GENSHIN_FEMALE = [
+    "荧", "七七", "丽莎", "云堇", "八重神子", "凝光", "刻晴", "坎蒂丝", "多莉", 
+    "夜兰", "妮露", "安柏", "宵宫", "早柚", "柯莱", "派蒙", "烟绯", "珊瑚宫心海", 
+    "珐露珊",  "琳妮特", "琴", "甘雨", "申鹤", "神里绫华", "纳西妲", "绮良良", "胡桃", 
+    "芙宁娜",  "芭芭拉", "莫娜", "菲谢尔", "诺艾尔", "雷电将军", "香菱"
+]
+VOICE_GENSHIN = {'male': VOICE_GENSHIN_MALE, 'female': VOICE_GENSHIN_FEMALE}
+VOICES = {'OpenAI': VOICE_OPENAI, 'Genshin': VOICE_GENSHIN}
+
+VOICE_INTRO_OPENAI = '以下声音来自[OpenAI tts\-1模型](https://platform\.openai\.com/docs/guides/text\-to\-speech)，这些声音非常自然，对多语音支持良好，但有些过于正经了。可[在此](https://t\.me/nekolalala/7200/7201)试听'
+VOICE_INTRO_GENSHIN = '以下声音来自当前领先的中文语音合成模型[Bert\-VITS2](https://github\.com/fishaudio/Bert\-VITS2)，这些声音使用原神配音数据训练，更加活泼生动，但是仅支持中文。本项目API所用模型由[红血球AE3803](https://space\.bilibili\.com/6589795)收集数据并训练。可[在此](https://t\.me/nekolalala/7200/7202)试听'
