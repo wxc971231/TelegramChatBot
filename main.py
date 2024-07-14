@@ -760,7 +760,7 @@ async def select_model(call: types.CallbackQuery, ):
         else:
             if user.ohmygpt_key is None:
                 user.state = 'settingChatKey'
-                await message.reply('请输入OhMyGPT API Key，可在[OhMyGPT官网](https://www\.ohmygpt\.com) 查看，可免费注册试用：', parse_mode='MarkdownV2', disable_web_page_preview=True)
+                await message.reply('请输入OhMyGPT API Key，可在[OhMyGPT官网](https://www\.ohmygpt\.com) 查看，推荐通过[链接](https://www\.ohmygpt\.com?aff=XFeTYpLh)免费注册试用：', parse_mode='MarkdownV2', disable_web_page_preview=True)
             else:
                 user.model = call.data.split('_')[-1]
                 await message.reply(f'模型设置为【{user.model}】，当前使用的OhMyGPT API Key设置为:\n\n{user.ohmygpt_key}\n\n现在就开始聊天吧!')
