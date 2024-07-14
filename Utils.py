@@ -91,6 +91,11 @@ def gen_img(key, prompt):
                 if artifact.type == generation.ARTIFACT_IMAGE:
                     photo_bytes = io.BytesIO(artifact.binary)
                     photo_file = types.InputFile(photo_bytes)
+                    try:
+                        img = Image.open(io.BytesIO(artifact.binary))
+                        img.save(f'./Image/{str(artifact.seed)}.png') # Save our generated images with their seed number as the filename.                            except Exception:
+                    except Exception:
+                        pass
     except Exception as e:
         raise e
 

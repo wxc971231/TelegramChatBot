@@ -1,3 +1,4 @@
+import openai
 from openai import OpenAI
 from transitions import Machine
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -16,31 +17,31 @@ USER_STATUS_SETTINGCONTEXT = 2
 USER_STATUS_NEWHYP = 3
 USER_STATUS_ALLGOOD = 4
 
-MODEL_GPT35 = 'gpt-3.5-turbo'
-MODEL_GPT40 = 'gpt-4'
-
 class User():
-    def __init__(self, name, id, cursor, connection, key=None) -> None:
+    def __init__(self, name, id, cursor, connection, key=None, ohmygpt_key=None) -> None:
         self.name = name
         self.id = id
-        self.key = key   
+        self.key = key
+        self.ohmygpt_key = ohmygpt_key
         self.imgKey = None
         self.voiceToken = None
         self.cursor = cursor
         self.connection = connection
 
-        self.client = None if key is None else OpenAI(api_key=key)
-        self.hypnotism = initUser(cursor, connection, id)
-        self.model = MODEL_GPT35
-        self.character = 'GPT'
-        self.system = ''
-        self.contextMaxLen = 5
-        self.immersion = False
         self.history = {'user':[], 'assistant':[]}
+        self.model_supplier = 'OpenAI'
+        self.model = 'gpt-3.5-turbo'
         self.voice_type = 'OpenAI'
         self.voice_sex = 'female'
         self.voice = 'Nova'
 
+        self.hypnotism = initUser(cursor, connection, id)
+        self.character = self.model
+        self.system = ''
+        self.contextMaxLen = 6
+        self.immersion = False
+
+        self.client = None
         self.currentVoiceMsg = None
         self.currentReplyMsg = None
         self.currentEdittingChar = None
@@ -57,6 +58,11 @@ class User():
         self.key = key
         self.client = OpenAI(api_key=key)
     
+    def setOhMyGPTKey(self, key):
+        assert key is not None
+        self.ohmygpt_key = key
+        self.client = OpenAI(api_key=key, base_url='https://api.ohmygpt.com/v1/')
+
     def setSDKey(self, key):
         self.imgKey = key
 
@@ -83,7 +89,7 @@ class User():
             # 组合上下文
             users = users[:self.contextMaxLen]
             assistants = assistants[:self.contextMaxLen-1]
-            message = [{"role": "system", "content": self.system},] if self.character != 'GPT' else []
+            message = [{"role": "system", "content": self.system},] if self.character != self.model else []
             for i in range(min(self.contextMaxLen, len(assistants)),0,-1):
                 message.append({"role": "user", "content": users[i]})
                 message.append({"role": "assistant", "content": assistants[i-1]})
@@ -166,7 +172,7 @@ class User():
         if useStreamMode:
             return response
         else:
-            return response.choices[0].message.content
+            return response.choices[0].message.content    
 
     def getHypnotismKeyBorad(self, usage):
         inlineKeyboard = InlineKeyboardMarkup()
@@ -175,9 +181,9 @@ class User():
             inlineKeyboard.add(inlineButton)
 
         self.hypnotism = getUserPrompts(self.cursor, self.connection, self.id)
-        for character in self.hypnotism.keys():
-            if character.startswith('GPT'):
-                inlineButton = InlineKeyboardButton(text='GPT', callback_data=usage+'GPT')
+        for character, hypn in self.hypnotism.items():
+            if hypn.startswith('不使用催眠咒语') and usage not in ['delete_hyp', 'edit_hyp']:
+                inlineButton = InlineKeyboardButton(text=f'{self.model} ({self.model_supplier})', callback_data=usage+self.model)
             else:
                 inlineButton = InlineKeyboardButton(text=character, callback_data=usage+character)
 
@@ -201,11 +207,21 @@ class User():
         inlineKeyboard.row(inlineButton_immersion, inlineButton_regen)
         return inlineKeyboard
 
-    def getModelKeyBorad(self):
+    def getModelSupplierBorad(self):
         inlineKeyboard = InlineKeyboardMarkup()
-        inlineButton35 = InlineKeyboardButton(text=MODEL_GPT35, callback_data='set_model'+MODEL_GPT35)     
-        inlineButton40 = InlineKeyboardButton(text=MODEL_GPT40, callback_data='set_model'+MODEL_GPT40)     
-        inlineKeyboard.add(inlineButton35, inlineButton40)
+        inlineButton_openai = InlineKeyboardButton(text='OpenAI', callback_data='model_selection_OpenAI')     
+        inlineButton_ohmygpt = InlineKeyboardButton(text='OhMyGPT', callback_data='model_selection_OhMyGPT')     
+        inlineKeyboard.add(inlineButton_openai, inlineButton_ohmygpt)
+        return inlineKeyboard
+
+    def getModelBorad(self):
+        models = MODELS[self.model_supplier]
+        inlineKeyboard = InlineKeyboardMarkup(row_width=len(models)+1)
+        inlineButton_back = InlineKeyboardButton(text='【返回】', callback_data='model_selection_back_to_select_supplier')
+        inlineKeyboard.add(inlineButton_back)
+        for model in models:
+            inlineButton = InlineKeyboardButton(text=model, callback_data=f'model_selection_{model}')
+            inlineKeyboard.add(inlineButton)
         return inlineKeyboard
 
     def getImmersionBorad(self):

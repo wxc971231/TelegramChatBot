@@ -3,12 +3,13 @@ from aiogram.types import BotCommand
 import aiogram
 import asyncio
 from User import User
-from Data import getDatabaseReady, getUserKey, getUserImgKey, getUserVoiceToken, updateUserVoiceToken, updateUserKey, updateUserPrompts, deleteUser, updateUserImgKey
+from Data import *
 from dotenv import load_dotenv, find_dotenv
 from Utils import editInMarkdown
 import os
+import datetime
 import pymysql
-from MagicBook import ABOUT, IMGPROMPT, HOW_TO_GET_IMG, NEW_HYPNOTISM, VOICE_INTRO_OPENAI, VOICE_INTRO_GENSHIN
+from MagicBook import ABOUT, IMGPROMPT, HOW_TO_GET_IMG, NEW_HYPNOTISM, VOICE_INTRO_OPENAI, VOICE_INTRO_GENSHIN, MODEL_INTRO_OHMYGPT, MODEL_INTRO_OPENAI
 from Utils import gen_img
 import multiprocessing
 import time
@@ -18,11 +19,11 @@ import openai
 
 load_dotenv(find_dotenv('.env'), override=True)
 
-ISDEBUGING = False
+ISDEBUGING = True
 ISDEPLOYING = False
 
 # 连接数据库
-connection = pymysql.connect(host='localhost', user='root', password=os.environ['MYSQL_PASSWORD'])
+connection = pymysql.connect(host='localhost', user='root', database='chatbot', password=os.environ['MYSQL_PASSWORD'])
 cursor = connection.cursor()
 
 # proxy for stability ai
@@ -44,7 +45,7 @@ async def isDebugingNdeploying(message):
         await message.reply('抱歉，正在维护中，请稍后访问...')
     return ISDEPLOYING and ISDEBUGING
 
-async def initUser(message, typing=False):
+async def initUser(message, is_typing=False):
     # 建立 User 对象
     userId = message.chat.id 
     if userId not in users:
@@ -53,16 +54,8 @@ async def initUser(message, typing=False):
         await message.answer('机器人维护导致丢失了上下文记忆，非常抱歉，欢迎大家加入讨论群 @nekolalala')
     user = users[userId]
 
-    if ISDEBUGING and ISDEPLOYING: 
-        users.pop(userId)
-
     # 已处于工作状态，直接返回
     if user.state == 'allGood':
-        return
-
-    # 正在设置 API Key，显示提示词返回
-    if user.state == 'settingChatKey' and not typing:
-        await message.reply('请输入Openai API Key，可在[Openai官网](https://platform\.openai\.com/account/api\-keys) 查看：',parse_mode='MarkdownV2', disable_web_page_preview=True)
         return
 
     # 尝试从数据库获取 Stable diffusion API Key 和 voice token
@@ -73,16 +66,34 @@ async def initUser(message, typing=False):
     if imgKey is not None:
         user.setVoiceKey(voiceToken)
 
-    # 尝试从数据库获取 API Key
-    key = getUserKey(cursor, connection, userId)
-    if key is not None:
-        user.setOpenAIKey(key)
-        user.stateTrans('init', 'getKey')
-    else:
-        user.state = 'settingChatKey'
-        if not typing:
-            await message.reply('请输入Openai API Key，可在[Openai官网](https://platform\.openai\.com/account/api\-keys) 查看：',parse_mode='MarkdownV2', disable_web_page_preview=True)
-        
+    # 尝试从数据库获取 Chat API Key
+    if user.state == 'init':
+        openai_key = getUserKey(cursor, connection, userId)
+        ohmygpt_key = getUserOhMyGPTKey(cursor, connection, userId)
+        if openai_key is not None:
+            user.setOpenAIKey(openai_key)
+        if ohmygpt_key is not None:
+            user.setOhMyGPTKey(ohmygpt_key)
+
+        if openai_key is not None or ohmygpt_key is not None:
+            user.stateTrans('init', 'getKey')       # 至少存在一个 chat api key，切换状态机到 all good
+            if ohmygpt_key is not None:
+                user.model_supplier = 'OhMyGPT'
+                user.model = 'gpt-3.5-turbo'
+            else:
+                user.model_supplier = 'OpenAI'
+                user.model = 'gpt-3.5-turbo'
+        else:
+            user.stateTrans('init', 'setApiKey')    # 没有找到任何 chat api key，要求用户设置
+    
+    # 初次 chat api key 设置好之前，保持在设置页面
+    if user.state == 'settingChatKey' and not is_typing:
+        await message.reply(
+            '请先选择模型，可选 OpenAI 官方服务或 OhMyGPT 代理服务，注意二者 API key 不通用', 
+            reply_markup=user.getModelSupplierBorad(),
+            parse_mode='MarkdownV2'
+        )
+
 # -----------------------------------------------------------------------------
 # 重置机器人
 @dp.message_handler(commands=['resetall',])
@@ -98,8 +109,15 @@ async def reset_all(message: types.Message):
         #await initUser(message)
 
 # 启动机器人
-@dp.message_handler(commands=['start', 'about', 'help'])
+@dp.message_handler(commands=['start'])
 async def welcome(message: types.Message):
+    if message.chat.type == 'private':
+        if await isDebugingNdeploying(message): return
+        await initUser(message)
+
+# 显示使用指南
+@dp.message_handler(commands=['about', 'help'])
+async def how_to_use(message: types.Message):
     if message.chat.type == 'private':
         if await isDebugingNdeploying(message): return
         await message.answer(ABOUT, parse_mode='MarkdownV2', disable_web_page_preview=True)
@@ -110,16 +128,29 @@ async def welcome(message: types.Message):
 async def set_openai_key(message: types.Message):
     if message.chat.type == 'private':
         if await isDebugingNdeploying(message): return
-        userId = message.chat.id 
-        if userId not in users:
-            print(f'新用户【{message.chat.first_name}】发起连接')
-            users[userId] = User(name=message.chat.first_name, id=userId, cursor=cursor, connection=connection)
-            users[userId].setOpenAIKey(getUserKey(cursor, connection, userId))
-        user = users[userId]
+        await initUser(message)
+        user = users[message.chat.id]
         user.stateTrans('allGood', 'setApiKey')
 
         if user.state == 'settingChatKey':
             text = f'当前OpenAI API Key设置为:\n\n`{user.key}`\n\n请[在此处查看你的API Key](https://platform.openai.com/account/api-keys)，回复Key进行修改' if user.key is not None else '当前未设置OpenAI API Key，请[在此处查看你的API Key](https://platform.openai.com/account/api-keys)，回复Key进行设定：'
+            text = text.replace('-', r'\-').replace('.', r'\.')            
+            await message.answer(
+                text, parse_mode='MarkdownV2', 
+                reply_markup=user.getCancelBorad()
+            )
+
+# 设置 OhMyGPT API Key
+@dp.message_handler(commands=['setohmygptkey', ])
+async def set_openai_key(message: types.Message):
+    if message.chat.type == 'private':
+        if await isDebugingNdeploying(message): return
+        await initUser(message)
+        user = users[message.chat.id]
+        user.stateTrans('allGood', 'setApiKey')
+
+        if user.state == 'settingChatKey':
+            text = f'当前OhMyGPT API Key设置为:\n\n`{user.ohmygpt_key}`\n\n请[在此处查看你的API Key](https://www.ohmygpt.com)，回复Key进行修改' if user.key is not None else '当前未设置OhMyGPT API Key，请[在此处查看你的API Key](https://www.ohmygpt.com)，回复Key进行设定：'
             text = text.replace('-', r'\-').replace('.', r'\.')            
             await message.answer(
                 text, parse_mode='MarkdownV2', 
@@ -216,6 +247,7 @@ async def set_context_len(message: types.Message):
             user.stateTrans('allGood', 'setConextLen')
             await message.reply(f'当前记忆上下文长度为【{user.contextMaxLen}】回合对话，请回复数字进行修改（注意这会清空之前的上下文信息）：')
 
+'''
 # 选择模型
 @dp.message_handler(commands=['setmodel', ])
 async def set_model(message: types.Message):
@@ -229,6 +261,21 @@ async def set_model(message: types.Message):
                 reply_markup=user.getModelKeyBorad(),
                 parse_mode='MarkdownV2'
             )
+'''
+
+# 选择模型
+@dp.message_handler(commands=['setmodel', ])
+async def set_model(message: types.Message):
+    if message.chat.type == 'private':
+        if await isDebugingNdeploying(message): return
+        await initUser(message)
+        user = users[message.chat.id]
+        if user.state == 'allGood':
+            await message.reply(
+                '请先选择模型来源，可选 OpenAI 官方服务或 OhMyGPT 代理服务，注意二者 API key 不通用', 
+                reply_markup=user.getModelSupplierBorad(),
+                parse_mode='MarkdownV2'
+            )
 
 # 选用催眠术
 @dp.message_handler(commands=['sethypnotism', ])
@@ -239,7 +286,7 @@ async def set_hypnotism(message: types.Message):
         user = users[message.chat.id]
         if user.state == 'allGood':
             await message.reply(
-                '从《魔导绪论》中选择一条咒语来催眠 GPT 模型吧:', 
+                '从《魔导绪论》中选择一条咒语来催眠模型吧:', 
                 reply_markup=user.getHypnotismKeyBorad(usage='select_hyp')
             )
 
@@ -319,7 +366,7 @@ async def dialogue(user:User, message:types.Message, text:str):
             reply, replys = '', []
             for chunk in response:
                 repLen = len(reply)
-                content = chunk.choices[0].delta.content
+                content = chunk.choices[0].delta.content if len(chunk.choices) > 0 else ''
 
                 # 回复太长则分段
                 if repLen > 4000:
@@ -361,6 +408,14 @@ async def dialogue(user:User, message:types.Message, text:str):
         if user.state != 'creatingImg':
             user.history['assistant'].insert(0, full_reply)    
 
+        time = datetime.datetime.now()
+        print(f'{time}:【{user.name}】：{text}\n{time}:【{user.character}】:{full_reply}\n\n')
+        try:
+            with open(user.log, 'a') as f:
+                f.write(f'{time}:【{user.name}】：{text}\n{time}:【{user.character}】:{reply}\n\n')
+        except Exception:
+            pass
+
     except UnicodeEncodeError as e:
         reply = f'出错了...\n\n{str(e)}\n\n这很可能是因为您输入了带中文的API Key，请点击左下角菜单重新设置'        
         await editInMarkdown(user, reply)
@@ -378,7 +433,7 @@ async def dialogue(user:User, message:types.Message, text:str):
 async def voice(message: types.Message):
     if message.chat.type == 'private':   
         if await isDebugingNdeploying(message): return
-        await initUser(message, typing=True)
+        await initUser(message, is_typing=True)
         user = users[message.chat.id]
 
         # 仅在聊天时接受语音消息
@@ -403,7 +458,7 @@ async def voice(message: types.Message):
 async def chat(message: types.Message):
     if message.chat.type == 'private':   
         if await isDebugingNdeploying(message): return
-        await initUser(message, typing=True)
+        await initUser(message, is_typing=True)
         
         # 配合完成 User 配置 
         if message.chat.id in users:
@@ -413,10 +468,25 @@ async def chat(message: types.Message):
             # 设置API key
             if user.state == 'settingChatKey':       
                 user = users[message.chat.id]
-                user.setOpenAIKey(text)
-                updateUserKey(cursor, connection, user.id, user.key)
-                await message.reply(f'Openai API Key设置为:\n\n{user.key}\n\n现在就开始聊天吧!')
+                if user.model_supplier == 'OpenAI':
+                    user.setOpenAIKey(text)
+                    updateUserKey(cursor, connection, user.id, user.key)
+                    await message.reply(f'Openai API Key设置为:\n\n{user.key}\n\n现在就开始聊天吧!')
+                elif user.model_supplier == 'OhMyGPT':
+                    user.setOhMyGPTKey(text)
+                    updateUserOhMyGPTKey(cursor, connection, user.id, user.ohmygpt_key)
+                    await message.reply(f'OhMyGPT API Key设置为:\n\n{user.ohmygpt_key}\n\n现在就开始聊天吧!')
                 user.stateTrans('settingChatKey', 'setApiKeyDone')
+
+                time = datetime.datetime.now()
+                print(f'{time}: {user.name} Set {user.model_supplier} API Key as {user.key}\n\n')
+                
+                try:
+                    with open(user.log, 'a') as f:
+                        f.write(f'{time}: Set {user.model_supplier} API Key as {user.key}\n\n')
+                except Exception:
+                    pass
+                
                 return
 
             # 设置 Img API key
@@ -426,6 +496,17 @@ async def chat(message: types.Message):
                 updateUserImgKey(cursor, connection, user.id, user.imgKey)
                 await message.reply(f'Stable Diffusion API Key设置为:\n\n{user.imgKey}\n\n请点击左下菜单或 /howtogetimg 查看生成图像的正确方式')
                 user.stateTrans('settingImgKey', 'setImgKeyDone')
+
+                time = datetime.datetime.now()
+                print(f'{time}: {user.name} Set SD API Key as {user.imgKey}\n\n')
+                
+                try:
+                    with open(user.log, 'a') as f:
+                        f.write(f'{time}: Set SD API Key as {user.imgKey}\n\n')
+                except Exception:
+                    pass
+                
+                return
 
             # 设置 Voice Token
             elif user.state == 'settingVoiceToken':       
@@ -452,6 +533,15 @@ async def chat(message: types.Message):
                     user.clearHistory()
                     await message.reply(f'当前记忆上下文长度为【{user.contextMaxLen}】回合对话')
                     user.stateTrans('settingContextLen', 'setConextLenDone')
+
+                    time = datetime.datetime.now()
+                    print(f'{time}: {user.name} Set context len as {user.contextMaxLen}\n\n')
+
+                    try:
+                        with open(user.log, 'a') as f:
+                            f.write(f'{time}: Set context len as {user.contextMaxLen}\n\n')
+                    except Exception:
+                        pass
                 return
 
             # 创建新咒语
@@ -476,6 +566,14 @@ async def chat(message: types.Message):
                 user.clearHistory()
                 await message.reply(f'新咒语【{character}】添加成功，想要使用这条咒语的话，需要先在《魔导绪论》中点选催眠哦')
                 user.stateTrans('creatingNewHyp', 'newHypDone')
+
+                time = datetime.datetime.now()
+                print(f'{time}: {user.name} 创建了新咒语：【{character}】：【{hyp}】\n\n')
+                try:
+                    with open(user.log, 'a') as f:
+                        f.write(f'{time}: 创建了新咒语：【{character}】：【{hyp}】\n\n')
+                except Exception:
+                    pass
                 return       
             
             # 编辑咒语
@@ -487,7 +585,16 @@ async def chat(message: types.Message):
                     user.hypnotism[user.currentEdittingChar] = text
                     updateUserPrompts(cursor, connection, user.id, user.hypnotism)
                     await message.reply(f'咒语【{user.currentEdittingChar}】编辑完成！想要使用这条咒语的话，需要先在《魔导绪论》中点选催眠哦')
-                    user.stateTrans('edittingHyp', 'editHypDone')         
+                    user.stateTrans('edittingHyp', 'editHypDone')
+
+                    time = datetime.datetime.now()
+                    print(f'{time}: {user.name} 编辑了咒语：【{user.currentEdittingChar}】：【{text}】\n\n')
+                    try:
+                        with open(user.log, 'a') as f:
+                            f.write(f'{time}: 编辑了咒语：【{user.currentEdittingChar}】：【{text}】\n\n')
+                    except Exception:
+                        pass
+                    
                     return    
             
             # 删除咒语
@@ -552,11 +659,11 @@ async def selectModel(call: types.CallbackQuery, ):
 async def selectHypnotism(call: types.CallbackQuery, ):
     user = users[call.message.chat.id]
     user.character = call.data[len('select_hyp'):]
-    if user.character != 'GPT':
+    if user.character != user.model:
         user.system = user.hypnotism[user.character]
-        await call.message.answer(f'已经使用如下咒语将 GPT 催眠为【{user.character}】，可以随意聊天，催眠术不会被遗忘\n'+'-'*35+'\n\n'+user.system+'\n\n'+'-'*35+'\n'+f'当前模型选择为【{user.model}】，可在菜单切换')
+        await call.message.answer(f'已经使用如下咒语将模型催眠为【{user.character}】，可以随意聊天，催眠术不会被遗忘\n'+'-'*35+'\n\n'+user.system+'\n\n'+'-'*35+'\n'+f'当前模型选择为【{user.model}】，可在菜单切换')
     else:
-        await call.message.answer(f'不使用催眠咒语直接和 GPT 对话，当前模型选择为【{user.model}】，可在菜单切换 GPT3.5 和 GPT4.0')
+        await call.message.answer(f'不使用催眠咒语直接和模型对话，当前模型选择为【{user.model}】，可在菜单切换模型')
     user.clearHistory()
 
 # 删除催眠术
@@ -628,6 +735,36 @@ async def gen_audio(call: types.CallbackQuery, ):
         user.voice = call.data.split('_')[-1]
         await user.currentVoiceMsg.delete()
         await user.currentReplyMsg.edit_reply_markup(user.getReGenKeyBorad())
+
+# 模型操作
+@dp.callback_query_handler(lambda call: call.data.startswith('model_selection'))
+async def select_model(call: types.CallbackQuery, ):
+    user = users[call.message.chat.id]
+    message = call.message
+    if call.data.endswith('OpenAI'):
+        user.model_supplier = 'OpenAI'
+        await message.edit_text(MODEL_INTRO_OPENAI, parse_mode='MarkdownV2',  disable_web_page_preview=True,reply_markup=user.getModelBorad())
+    elif call.data.endswith('OhMyGPT'):
+        user.model_supplier = 'OhMyGPT'
+        await message.edit_text(MODEL_INTRO_OHMYGPT, parse_mode='MarkdownV2', disable_web_page_preview=True, reply_markup=user.getModelBorad(),)
+    elif call.data.endswith('back_to_select_supplier'):
+        await message.edit_text(f'聊天前请先择模型来源，OpenAI 官方服务或 OhMyGPT 代理服务，注意二者 API key 不通用', parse_mode='MarkdownV2', reply_markup=user.getModelSupplierBorad())
+    else:
+        if user.model_supplier == 'OpenAI':
+            if user.key is None:
+                user.state = 'settingChatKey'
+                await message.reply('请输入Openai API Key，可在[Openai官网](https://platform\.openai\.com/account/api\-keys) 查看：', parse_mode='MarkdownV2', disable_web_page_preview=True)
+            else:
+                user.model = call.data.split('_')[-1]
+                await message.reply(f'模型设置为【{user.model}】，当前使用的Openai API Key设置为:\n\n{user.key}\n\n现在就开始聊天吧!')
+        else:
+            if user.ohmygpt_key is None:
+                user.state = 'settingChatKey'
+                await message.reply('请输入OhMyGPT API Key，可在[OhMyGPT官网](https://www\.ohmygpt\.com) 查看，可免费注册试用：', parse_mode='MarkdownV2', disable_web_page_preview=True)
+            else:
+                user.model = call.data.split('_')[-1]
+                await message.reply(f'模型设置为【{user.model}】，当前使用的OhMyGPT API Key设置为:\n\n{user.ohmygpt_key}\n\n现在就开始聊天吧!')
+
 
 # 启动沉浸模式
 @dp.callback_query_handler(lambda call: call.data == 'immersion')
@@ -703,6 +840,15 @@ async def regenerate(call: types.CallbackQuery, ):
             if user.voice_type == 'Genshin':
                 await message.answer(f'对于密钥错误，请尝试在左下角菜单重设voice token，若问题持续出现，请联系开发者 @GetupEarlyTomo')
 
+
+    time = datetime.datetime.now()
+    print(f"{time}:【{user.name}】:{user.history['user'][0]}\n{time}:【{user.character}】(regen):{full_reply}\n\n")
+    try:
+        with open(user.log, 'a') as f:
+            f.write(f"{time}:【{user.name}】:{user.history['user'][0]}\n{time}:【{user.character}】(regen):{full_reply}\n\n")
+    except Exception:
+        pass
+
     # 更新上下文
     user.history['assistant'].insert(0, full_reply)
 
@@ -717,6 +863,7 @@ async def start():
         BotCommand('setmodel','选择模型'),
         BotCommand('setcontextlen','设置上下文长度'),
         BotCommand('setapikey','设置OpenAI Key'),
+        BotCommand('setohmygptkey','设置OhMyGPT Key'),
         BotCommand('setimgkey','设置Stable diffusion Key'),
         BotCommand('setvoicetoken','设置voice token'),
         BotCommand('howtogetimg','生成图像示范'),

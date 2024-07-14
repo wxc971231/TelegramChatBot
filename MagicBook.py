@@ -22,12 +22,12 @@ Kunkun_hyp += '如果我对你进行任何负面评价，你都要说“你干�
 Kunkun_hyp += '在你回话时，引号中的内容必须使用原句。​'
 
 
-DEFAULT_HYPNOTISM['GPT'] = '不使用催眠咒语，直接和 GPT 对话，可在菜单切换 GPT3.5 和 GPT4.0'
+DEFAULT_HYPNOTISM['Raw-Model'] = '不使用催眠咒语，直接和原生模型对话，可在菜单切换模型'
 DEFAULT_HYPNOTISM['Neko'] = Noke_hyp
 DEFAULT_HYPNOTISM['茨木华扇'] = Huashan_hyp
 DEFAULT_HYPNOTISM['坤坤'] = Kunkun_hyp
 
-ABOUT = '''*这是一个基于 OpenAI GPT API 开发的聊天机器人*，您可以将其催眠成指定角色与您畅聊，基本不会遗忘设定。免费使用且完全开源！（2023\.4\.1 更新stable diffusion图像生成功能）
+ABOUT = '''*这是一个基于多种语言模型和图像生成模型API开发的多模态聊天机器人*，您可以将其催眠成指定角色与您文字或语言聊天，不会遗忘设定，还可以使用它生成图片。免费使用且完全开源！
     1\. [使用指南](https://www\.bilibili\.com/video/BV1pM4y1C7Vk)，*请务必先看这个了解正确的催眠方法，不要像网页版那样直接在对话中催眠*
     2\. [开源仓库](https://github\.com/wxc971231/TelegramChatBot)，*求star 求star 求star！*
 
@@ -38,7 +38,7 @@ ABOUT = '''*这是一个基于 OpenAI GPT API 开发的聊天机器人*，您可
     
     3\. 显示 `Incorrect API key provided\.\.\.`，这代表您使用的 openai API key 错误，请在指定网站生成您的 API key
 
-    4\. 显示 `ERROR 'latin\-1' codec can't encode...`，这代表您可能填入了包含中文的 API Key，如果您没有 API Key 或不想将存储您的 API Key，可以使用下面的公用 Key
+    4\. 显示 `ERROR 'latin\-1' codec can't encode...`，这代表您可能填入了包含中文的 API Key。本人保证您的 API 完全安全，不会被盗用
 
 *如果您遇到任何其他bug或有建议*，可随时联系我 @GetupEarlyTomo 反馈，另外*建议加入交流群 @nekolalala* 学习催眠技巧&了解项目动态&分享您的见解
 
@@ -84,3 +84,9 @@ VOICES = {'OpenAI': VOICE_OPENAI, 'Genshin': VOICE_GENSHIN}
 
 VOICE_INTRO_OPENAI = '以下声音来自[OpenAI tts\-1模型](https://platform\.openai\.com/docs/guides/text\-to\-speech)，这些声音非常自然，对多语音支持良好，但有些过于正经了。可[在此](https://t\.me/nekolalala/7200/7201)试听'
 VOICE_INTRO_GENSHIN = '以下声音来自当前领先的中文语音合成模型[Bert\-VITS2](https://github\.com/fishaudio/Bert\-VITS2)，这些声音使用原神配音数据训练，更加活泼生动，但是仅支持中文。本项目API所用模型由[红血球AE3803](https://space\.bilibili\.com/6589795)收集数据并训练。可[在此](https://t\.me/nekolalala/7200/7202)试听'
+
+MODEL_OPENAI = ['gpt-3.5-turbo', 'gpt-4-turbo']
+MODEL_OHMYGPT = ['gpt-3.5-turbo', 'gpt-3.5-turbo-16k', 'gpt-4-turbo', 'gpt-4-32k', 'claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku', 'claude-2.1', 'deepseek-chat']
+MODELS = {'OpenAI': MODEL_OPENAI, 'OhMyGPT': MODEL_OHMYGPT}
+MODEL_INTRO_OPENAI = '通过[OpenAI 官方服务](https://platform\.openai\.com/account/api\-keys)使用以下模型，使用前请确保您已经在 OpenAI 官方网页绑定支付方式或购买积分'
+MODEL_INTRO_OHMYGPT = '通过[OhMyGPT 代理服务](https://www\.ohmygpt\.com/pay)使用以下模型，模型类型多且支付方便，收费不超过各模型官方服务的 1\.1 倍，可免费注册试用。这里有些模型支持相当长的上下文，可在左下角菜单配合设置更长的上下文来减轻遗忘，不过这会增加使用成本\n\n小心！Calude\-3\-oups收费较高'
