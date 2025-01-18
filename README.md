@@ -1,3 +1,5 @@
+[<img src="https://api.gitsponsors.com/api/badge/img?id=611194693" height="20">](https://api.gitsponsors.com/api/badge/link?p=oYB+wlP7r+BvXnb37iBMdQSsbs+hoQFxHF9geYZjjS0z6tov0o5cs42nYX6Dri/eLQNrxiv5wK7aRHMDA8RqmlLEF1n0TSbksmLm5HJAgRkJ9ycI+gEBUg9dwRZeMYnr)
+
 # TelegramChatBot
 - This is a chatbot powered by OpenAI GPT API, which you can easily hypnotize into a specified character with simply one click. Using the latest 'system' parameter, It can effectively avoid forgetting the character settings during chatting. You can also conveniently manage and create new hypnosis spells. With a variety of powerful APIs, the chatbot has multimodal interaction capabilities including image display, voice input and output, and more. The API used include
 
